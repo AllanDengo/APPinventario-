@@ -675,7 +675,8 @@ const ABAS=[
   {id:'inv_geral',  label:'2 · Inv. Geral', icon:'🏭'},
   {id:'central',    label:'3 · Central',    icon:'🗼'},
   {id:'confronto',  label:'4 · Confronto',  icon:'🔍'},
-  {id:'gerenciar',  label:'5 · Gerenciar',  icon:'👥'},
+  {id:'torre',      label:'5 · Torre de Controle', icon:'🗼'},
+  {id:'gerenciar',  label:'6 · Gerenciar',  icon:'👥'},
 ];
 
 let A={
@@ -916,7 +917,7 @@ function goTab(id){
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
   document.getElementById('nt-'+id)?.classList.add('active');
   if(A.sessao&&A.sessoesAtivas[A.sessao.id]){
-    const modLabel={importacao:'Importar',abc:'Curva ABC',contagem:'Cíclico',inv_geral:'Inv. Geral',acompanhamento:'Acompanhamento',dashboard:'Dashboard',gerenciar:'Gerenciar',central:'Central',confronto:'Confronto',status_listas:'Status Listas'}[id]||id;
+    const modLabel={importacao:'Importar',abc:'Curva ABC',contagem:'Cíclico',inv_geral:'Inv. Geral',acompanhamento:'Acompanhamento',dashboard:'Dashboard',gerenciar:'Gerenciar',central:'Central',confronto:'Confronto',torre:'Torre de Controle',status_listas:'Status Listas'}[id]||id;
     A.sessoesAtivas[A.sessao.id].modulo=modLabel;
     if(id==='contagem')A.sessoesAtivas[A.sessao.id].status='contando';
   }
@@ -929,6 +930,7 @@ function goTab(id){
   else if(id==='status_listas'){c.innerHTML=hStatusListas();dStatusListas();}
   else if(id==='dashboard'){c.innerHTML=hDash();if(A.dados.skus.length)dDash();}
   else if(id==='confronto'){c.innerHTML=hConfronto();dConfronto();}
+  else if(id==='torre'){c.innerHTML=hTorre();dTorre();}
   else if(id==='gerenciar'){c.innerHTML=hGer();dUsers();dSysLog();if(typeof iniciarTokenUpdater==='function')iniciarTokenUpdater();}
   else if(id==='central'){c.innerHTML=hCentral();dCentral();}
 }
@@ -3827,10 +3829,10 @@ function cadastrarUsuario(){
   if(jaExiste){showErr('Já existe usuário com esse nome.');return;}
   SEC.h(pw).then(function(h){
     var abas={
-      admin:['importacao','inv_geral','central','confronto','gerenciar'],
-      gestor:['importacao','inv_geral','central','confronto'],
-      analista:['importacao','inv_geral','confronto'],
-      auditor:['inv_geral','confronto'],
+      admin:['importacao','inv_geral','central','confronto','torre','gerenciar'],
+      gestor:['importacao','inv_geral','central','confronto','torre'],
+      analista:['importacao','inv_geral','confronto','torre'],
+      auditor:['inv_geral','confronto','torre'],
       operador:['inv_geral']
     }[perfil]||['inv_geral'];
     var novo={id:'u'+Date.now(),nome:nome,perfil:perfil,pinHash:h,provisoria:false,abas:abas,ativo:true};
@@ -4528,10 +4530,10 @@ function migrarAbasUsuarios(){
   if(!A.usuarios || !A.usuarios.length) return;
   var mudou = false;
   var abasPorPerfil = {
-    admin:['importacao','inv_geral','central','confronto','gerenciar'],
-    gestor:['importacao','inv_geral','central','confronto'],
-    analista:['importacao','inv_geral','confronto'],
-    auditor:['inv_geral','confronto']
+    admin:['importacao','inv_geral','central','confronto','torre','gerenciar'],
+    gestor:['importacao','inv_geral','central','confronto','torre'],
+    analista:['importacao','inv_geral','confronto','torre'],
+    auditor:['inv_geral','confronto','torre']
   };
   A.usuarios.forEach(function(u){
     var padrao = abasPorPerfil[u.perfil];
@@ -4589,6 +4591,14 @@ function encerrarConfronto(contexto){
   var vlImpacto=linhas.reduce(function(a,l){return a+Math.abs(l.vlDiff||0);},0);
   
   var hist = getHistoricoConfrontos();
+  // Calcular saldos financeiros totais
+  var vlSaldoInicial=0, vlSaldoAjustado=0;
+  linhas.forEach(function(l){
+    var prod=(A.dados.produtos||[]).find(function(p){return p.sku===l.sku;});
+    var custo=prod?toNum(prod.custo||prod.preco):0;
+    vlSaldoInicial += (l.qtdAprovada||0)*custo;
+    vlSaldoAjustado += (l.qtdSap||0)*custo;
+  });
   hist.push({
     id:'cf-'+Date.now(),
     contexto:contexto,
@@ -4600,6 +4610,8 @@ function encerrarConfronto(contexto){
     totNovo:totNovo,
     totFaltou:totFaltou,
     vlImpacto:vlImpacto,
+    vlSaldoInicial:vlSaldoInicial,
+    vlSaldoAjustado:vlSaldoAjustado,
     totalLinhas:linhas.length,
     linhas:linhas // snapshot completo para consulta
   });
@@ -4689,6 +4701,161 @@ function calcularLinhasConfronto(contexto){
   }
   return linhas;
 }
+
+// ═══════════════════════════════════════════
+// TORRE DE CONTROLE - Histórico de inventários
+// ═══════════════════════════════════════════
+function hTorre(){
+  return '<div class="stit">🗼 Torre de Controle</div>'+
+    '<div class="ssub" style="margin-bottom:16px">Histórico dos confrontos encerrados. Cada "Encerrar Confronto" gera uma linha aqui.</div>'+
+    '<div id="torre-content"></div>';
+}
+
+function dTorre(){
+  var el=document.getElementById('torre-content');
+  if(!el) return;
+  var hist=(A.confrontosHistorico||[]).slice();
+  function fmtBR(v){return (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  function money(v){return 'R$ '+fmtBR(v);}
+  
+  if(!hist.length){
+    el.innerHTML='<div class="card" style="text-align:center;padding:40px 24px">'+
+      '<div style="font-size:44px;margin-bottom:10px">🗼</div>'+
+      '<div style="font-size:16px;font-weight:800;color:var(--cacau);margin-bottom:6px">Nenhum registro ainda</div>'+
+      '<div style="font-size:12px;color:#9A8270">Vá até a aba <strong>🔍 Confronto</strong> e clique em <strong>📌 Encerrar Confronto</strong> para gerar o primeiro registro do histórico.</div>'+
+      '</div>';
+    return;
+  }
+  
+  // Mais recente primeiro
+  hist.sort(function(a,b){return b.ts-a.ts;});
+  
+  // Para calcular "aumento vs anterior" por contexto
+  var porContexto={};
+  hist.slice().reverse().forEach(function(h){
+    if(!porContexto[h.contexto])porContexto[h.contexto]=[];
+    porContexto[h.contexto].push(h);
+  });
+  // Atribuir aumento comparando com o registro anterior do mesmo contexto
+  Object.values(porContexto).forEach(function(regs){
+    regs.forEach(function(h,i){
+      if(i===0){ h.__aumento=0; h.__aumentoPct=0; }
+      else {
+        var ant=regs[i-1];
+        h.__aumento=(h.vlSaldoAjustado||0)-(ant.vlSaldoAjustado||0);
+        h.__aumentoPct=ant.vlSaldoAjustado?((h.__aumento/ant.vlSaldoAjustado)*100):0;
+      }
+    });
+  });
+  
+  var html='<div class="card">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">'+
+      '<div class="ctit" style="margin:0;background:#EFEBE2;padding:8px 20px;border-radius:6px;letter-spacing:.08em">HISTÓRICO DE INVENTÁRIO</div>'+
+      '<button onclick="exportarTorreExcel()" style="background:var(--cacau);color:var(--ouro);border:none;border-radius:10px;padding:10px 18px;font-weight:800;cursor:pointer;font-size:13px">📥 Exportar Excel</button>'+
+    '</div>'+
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:1100px">'+
+    '<thead><tr style="background:#EFEBE2">'+
+      '<th style="padding:10px 8px;text-align:left;font-size:10px;color:#5A4A3A;letter-spacing:.06em">DATA</th>'+
+      '<th style="padding:10px 8px;text-align:left;font-size:10px;color:#5A4A3A;letter-spacing:.06em">ORIGEM</th>'+
+      '<th style="padding:10px 8px;text-align:right;font-size:10px;color:#5A4A3A;letter-spacing:.06em">SALDO INICIAL</th>'+
+      '<th style="padding:10px 8px;text-align:right;font-size:10px;color:#5A4A3A;letter-spacing:.06em">SALDO AJUSTADO</th>'+
+      '<th style="padding:10px 8px;text-align:right;font-size:10px;color:#5A4A3A;letter-spacing:.06em">NET</th>'+
+      '<th style="padding:10px 8px;text-align:center;font-size:10px;color:#5A4A3A;letter-spacing:.06em">DESVIO %</th>'+
+      '<th style="padding:10px 8px;text-align:right;font-size:10px;color:#5A4A3A;letter-spacing:.06em">AUMENTO DO VALOR</th>'+
+      '<th style="padding:10px 8px;text-align:center;font-size:10px;color:#5A4A3A;letter-spacing:.06em">AUMENTO %</th>'+
+      '<th style="padding:10px 8px;text-align:center;font-size:10px;color:#5A4A3A;letter-spacing:.06em">DIVERG.</th>'+
+      '<th style="padding:10px 8px;text-align:center;font-size:10px;color:#5A4A3A;letter-spacing:.06em">AÇÕES</th>'+
+    '</tr></thead><tbody>';
+  
+  hist.forEach(function(h){
+    var net=(h.vlSaldoAjustado||0)-(h.vlSaldoInicial||0);
+    var desvio=h.vlSaldoInicial?((net/h.vlSaldoInicial)*100):0;
+    var netClr=net<0?'#D14343':(net>0?'#5BA85B':'#5A4A3A');
+    var netBg=net<0?'#FBEAEA':(net>0?'#EBF5EB':'transparent');
+    var desvClr=desvio<0?'#D14343':(desvio>0?'#5BA85B':'#5A4A3A');
+    var desvBg=desvio<0?'#FBEAEA':(desvio>0?'#EBF5EB':'transparent');
+    var aumClr=h.__aumentoPct>0?'#1A6ACC':'#5A4A3A';
+    var aumBg=h.__aumentoPct>30?'#B8F0F5':(h.__aumentoPct>0?'#FEF7B2':'transparent');
+    html+='<tr style="border-top:1px solid var(--g100)">'+
+      '<td style="padding:8px;font-family:monospace;font-weight:700">'+new Date(h.ts).toLocaleDateString('pt-BR')+'<div style="font-size:9px;color:#9A8270;font-weight:400">'+new Date(h.ts).toLocaleTimeString('pt-BR').slice(0,5)+' · '+SEC.t(h.usuario||'')+'</div></td>'+
+      '<td style="padding:8px;font-weight:700">'+SEC.t(h.label)+'</td>'+
+      '<td style="padding:8px;text-align:right;font-family:monospace">'+money(h.vlSaldoInicial)+'</td>'+
+      '<td style="padding:8px;text-align:right;font-family:monospace">'+money(h.vlSaldoAjustado)+'</td>'+
+      '<td style="padding:8px;text-align:right;font-family:monospace;font-weight:800;color:'+netClr+';background:'+netBg+'">'+(net<0?'-':'')+money(Math.abs(net)).replace('R$','R$ ')+'</td>'+
+      '<td style="padding:8px;text-align:center;font-weight:800;color:'+desvClr+';background:'+desvBg+'">'+(desvio>=0?'+':'')+desvio.toFixed(2)+'%</td>'+
+      '<td style="padding:8px;text-align:right;font-family:monospace">'+money(h.__aumento)+'</td>'+
+      '<td style="padding:8px;text-align:center;font-weight:800;color:'+aumClr+';background:'+aumBg+'">'+(h.__aumentoPct||0).toFixed(0)+'%</td>'+
+      '<td style="padding:8px;text-align:center;font-weight:700;color:'+(h.totDiv>0?'#D14343':'#5BA85B')+'">'+h.totDiv+'</td>'+
+      '<td style="padding:8px;text-align:center;white-space:nowrap">'+
+        '<button data-id="'+h.id+'" onclick="excluirRegistroTorre(this.dataset.id)" style="background:#FBEAEA;color:#D14343;border:1px solid #D14343;border-radius:6px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">🗑️</button>'+
+      '</td>'+
+    '</tr>';
+  });
+  html+='</tbody></table></div></div>';
+  el.innerHTML=html;
+}
+
+function excluirRegistroTorre(id){
+  var hist=A.confrontosHistorico||[];
+  var reg=hist.find(function(h){return h.id===id;});
+  if(!reg) return;
+  if(!confirm('🗑️ Excluir o registro de '+reg.label+' de '+new Date(reg.ts).toLocaleDateString('pt-BR')+'?\n\nEsta ação não pode ser desfeita.')) return;
+  A.confrontosHistorico=hist.filter(function(h){return h.id!==id;});
+  save();
+  addLog('Excluiu registro torre',reg.label+' '+new Date(reg.ts).toLocaleDateString('pt-BR'));
+  dTorre();
+}
+
+function exportarTorreExcel(){
+  var hist=(A.confrontosHistorico||[]).slice();
+  if(!hist.length){alert('Nenhum registro no histórico.');return;}
+  hist.sort(function(a,b){return b.ts-a.ts;});
+  var porContexto={};
+  hist.slice().reverse().forEach(function(h){
+    if(!porContexto[h.contexto])porContexto[h.contexto]=[];
+    porContexto[h.contexto].push(h);
+  });
+  Object.values(porContexto).forEach(function(regs){
+    regs.forEach(function(h,i){
+      if(i===0){h.__aumento=0;h.__aumentoPct=0;}
+      else{
+        var ant=regs[i-1];
+        h.__aumento=(h.vlSaldoAjustado||0)-(ant.vlSaldoAjustado||0);
+        h.__aumentoPct=ant.vlSaldoAjustado?((h.__aumento/ant.vlSaldoAjustado)*100):0;
+      }
+    });
+  });
+  var rows=[['Data','Hora','Usuário','Origem','Saldo Inicial','Saldo Ajustado','NET','Desvio %','Aumento do Valor','Aumento %','Bateu','Divergentes','Só um lado','Impacto R$ abs']];
+  hist.forEach(function(h){
+    var net=(h.vlSaldoAjustado||0)-(h.vlSaldoInicial||0);
+    var desvio=h.vlSaldoInicial?((net/h.vlSaldoInicial)*100):0;
+    rows.push([
+      new Date(h.ts).toLocaleDateString('pt-BR'),
+      new Date(h.ts).toLocaleTimeString('pt-BR'),
+      h.usuario||'',
+      h.label,
+      h.vlSaldoInicial||0,
+      h.vlSaldoAjustado||0,
+      net,
+      desvio.toFixed(2)+'%',
+      h.__aumento||0,
+      (h.__aumentoPct||0).toFixed(1)+'%',
+      h.totOk||0,
+      h.totDiv||0,
+      (h.totNovo||0)+(h.totFaltou||0),
+      h.vlImpacto||0
+    ]);
+  });
+  if(typeof XLSX==='undefined'){alert('SheetJS não carregada.');return;}
+  var wb=XLSX.utils.book_new();
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:11},{wch:9},{wch:16},{wch:12},{wch:15},{wch:15},{wch:13},{wch:9},{wch:15},{wch:10},{wch:8},{wch:11},{wch:10},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws,'Torre de Controle');
+  var nome='torre_controle_'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'.xlsx';
+  XLSX.writeFile(wb,nome);
+  addLog('Exportou torre Excel',nome);
+}
+
 (function(){
   // Expor todas as funções no escopo global
   try{if(typeof save==='function')window.save=save;}catch(e){}
@@ -5690,4 +5857,8 @@ renderLoginUsers();
   try{if(typeof calcularLinhasConfronto==='function')window['calcularLinhasConfronto']=calcularLinhasConfronto;}catch(e){}
   try{if(typeof getHistoricoConfrontos==='function')window['getHistoricoConfrontos']=getHistoricoConfrontos;}catch(e){}
   try{if(typeof limparParceiroTudo==='function')window['limparParceiroTudo']=limparParceiroTudo;}catch(e){}
+  try{if(typeof hTorre==='function')window['hTorre']=hTorre;}catch(e){}
+  try{if(typeof dTorre==='function')window['dTorre']=dTorre;}catch(e){}
+  try{if(typeof excluirRegistroTorre==='function')window['excluirRegistroTorre']=excluirRegistroTorre;}catch(e){}
+  try{if(typeof exportarTorreExcel==='function')window['exportarTorreExcel']=exportarTorreExcel;}catch(e){}
 >
