@@ -415,14 +415,55 @@ tbody tr:hover{background:var(--g50)}
 
 </style>
 
-<script>
-// FIREBASE DESATIVADO - modo local puro
-window.FB = null;
-window.__fbUid = null;
-window.__fbStatus = 'offline';
-window.__fbSyncOn = false;
-console.log('📴 Firebase DESATIVADO - modo 100% local');
-setTimeout(function(){ if(window.updateFbStatusUI)window.updateFbStatusUI(); }, 500);
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, serverTimestamp, enableIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyA48mm1GIz5gjTjJJWKg_EYry_wtTtx1wk",
+    authDomain: "appinventario-ca64b.firebaseapp.com",
+    projectId: "appinventario-ca64b",
+    storageBucket: "appinventario-ca64b.firebasestorage.app",
+    messagingSenderId: "814409714160",
+    appId: "1:814409714160:web:d962fd5012c041b91df535"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const fbAuth = getAuth(fbApp);
+  const fbDb = getFirestore(fbApp);
+
+  // Persistência offline
+  try { enableIndexedDbPersistence(fbDb); } catch(e) { console.warn('persistence:', e.code); }
+
+  // Expor para o app não-modular
+  window.FB = { app: fbApp, auth: fbAuth, db: fbDb, doc, setDoc, getDoc, collection, onSnapshot, serverTimestamp };
+
+  // Autenticação anônima
+  signInAnonymously(fbAuth).catch(err => {
+    console.error('Anon auth error:', err);
+    window.__fbStatus = 'error';
+    if (window.updateFbStatusUI) window.updateFbStatusUI();
+  });
+
+  onAuthStateChanged(fbAuth, user => {
+    if (user) {
+      window.__fbUid = user.uid;
+      window.__fbStatus = 'connected';
+      console.log('🟢 Firebase conectado. UID:', user.uid);
+      if (window.startFbSync) window.startFbSync();
+      if (window.updateFbStatusUI) window.updateFbStatusUI();
+    }
+  });
+
+  window.addEventListener('online', () => {
+    window.__fbStatus = window.__fbUid ? 'connected' : 'offline';
+    if (window.updateFbStatusUI) window.updateFbStatusUI();
+  });
+  window.addEventListener('offline', () => {
+    window.__fbStatus = 'offline';
+    if (window.updateFbStatusUI) window.updateFbStatusUI();
+  });
 </script>
 
 </head>
@@ -914,6 +955,7 @@ function show(id,v){document.getElementById(id).style.display=v?'block':'none';}
 function renderNav(){document.getElementById('nav').innerHTML=ABAS.filter(a=>A.sessao.abas.includes(a.id)).map(a=>`<button class="ntab" id="nt-${a.id}" onclick="goTab('${a.id}')">${a.icon} ${a.label}</button>`).join('');}
 function goTab(id){
   if(!A.sessao.abas.includes(id))return;
+  window.__tabAtual=id;
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
   document.getElementById('nt-'+id)?.classList.add('active');
   if(A.sessao&&A.sessoesAtivas[A.sessao.id]){
@@ -3731,13 +3773,8 @@ setTimeout(hookSave, 3000);
 
 function drawCurrent(){
   try{
-    if(typeof _currentTab!=='undefined' && _currentTab){
-      var h = window['h'+_currentTab.charAt(0).toUpperCase()+_currentTab.slice(1)];
-      var d = window['d'+_currentTab.charAt(0).toUpperCase()+_currentTab.slice(1)];
-      var el = document.getElementById('content');
-      if(h && el){ el.innerHTML = h(); }
-      if(d) setTimeout(d, 50);
-    }
+    var t = window.__tabAtual;
+    if(t && typeof goTab==='function' && A.sessao){ goTab(t); }
   }catch(e){ console.warn('drawCurrent:', e); }
 }
 window.drawCurrent = drawCurrent;
