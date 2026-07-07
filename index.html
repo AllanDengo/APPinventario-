@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
 <title>Inventário Geral · Dengo</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ══════ SUPABASE — conexão ══════
+const SB_URL = 'https://mznpmgoiskaskyepsgsv.supabase.co';
+const SB_KEY = 'sb_publishable_g3rZ6lcv0V3izDg5bnOcvA_3lO-h1zm';
+let SB = null;
+try {
+  SB = supabase.createClient(SB_URL, SB_KEY);
+  window.SB = SB;
+  console.log('🟦 Supabase inicializado');
+} catch(e){ console.error('Supabase init erro:', e); }
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -511,42 +523,12 @@ tbody tr:hover{background:var(--g50)}
   <div class="llast" id="llast"></div>
   <div class="lerr" id="lerr"></div>
   <div class="linfo" id="linfo"></div>
-  <div id="step0" style="display:none">
-    <div class="fg"><label class="fl">Nome completo</label><input class="fi" id="cad-nome" placeholder="Seu nome" maxlength="60"></div>
-    <div class="fg"><label class="fl">Perfil</label><select class="fi" id="cad-perfil"><option value="operador">Operador</option><option value="analista">Analista</option><option value="gestor">Gestor</option><option value="auditor">Auditor</option><option value="admin">Administrador</option></select></div>
-    <div class="fg"><label class="fl">Token de cadastro</label><input class="fi" id="cad-tok" placeholder="6 dígitos" maxlength="6" inputmode="numeric"></div>
-    <div class="fg"><label class="fl">Sua senha (4–6 dígitos)</label><input class="pw-input fi" id="cad-pw" type="password" maxlength="6" inputmode="numeric" placeholder="••••"></div>
-    <div class="fg"><label class="fl">Confirmar senha</label><input class="pw-input fi" id="cad-pw2" type="password" maxlength="6" inputmode="numeric" placeholder="••••"></div>
-    <button class="btn bp bfl" onclick="cadastrarUsuario()">Cadastrar e entrar</button>
-    <button class="btn bs bsm bfl mt8" onclick="voltarLogin()">← Já tenho conta</button>
+  <div id="sb-login">
+    <div class="fg"><label class="fl">E-mail</label><input class="fi" id="sb-email" type="email" placeholder="seu.nome@dengo.com" autocomplete="username"></div>
+    <div class="fg"><label class="fl">Senha</label><input class="fi" id="sb-senha" type="password" placeholder="Sua senha" autocomplete="current-password" onkeydown="if(event.key==='Enter')sbFazerLogin()"></div>
+    <button class="btn bp bfl" id="sb-btn-login" onclick="sbFazerLogin()">Entrar</button>
+    <div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><span style="font-size:11px;color:var(--g400)">Novos acessos são criados pelo administrador.</span></div>
   </div>
-  <div id="step1">
-    <div class="fg"><label class="fl">Usuário</label>
-      <div class="usel">
-        <button class="usel-btn" id="usel-btn" onclick="toggleDrop()">
-          <div class="usel-btn-av" id="usel-av">—</div>
-          <span style="flex:1;font-size:13px;font-weight:500" id="usel-name">Selecionar usuário</span>
-          <span style="color:var(--g400);font-size:12px">▾</span>
-        </button>
-        <div class="usel-drop" id="usel-drop"></div>
-      </div>
-    </div>
-    <button class="btn bp bfl" id="btn-next" onclick="goPin()" disabled>Continuar</button>
-    <div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><button onclick="irCadastro()" style="background:none;border:none;color:var(--cacau);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">➕ Cadastrar novo usuário</button></div>
-  </div>
-  <div id="step2" style="display:none">
-    <div style="font-size:12px;font-weight:600;color:var(--g500);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em" id="pin-label">Senha</div>
-    <div class="pdots" id="pdots"></div>
-    <div class="pgrid" id="pgrid"></div>
-    <button class="btn bs bsm bfl mt8" onclick="backStep1()">← Voltar</button>
-  </div>
-  <div id="step3" style="display:none">
-    <div class="alert ai">Cadastre uma senha pessoal para continuar.</div>
-    <div class="fg"><label class="fl">Nova senha (4–6 dígitos)</label><input class="pw-input fi" id="pw-new" type="password" maxlength="6" inputmode="numeric" placeholder="••••"></div>
-    <div class="fg"><label class="fl">Confirmar senha</label><input class="pw-input fi" id="pw-conf" type="password" maxlength="6" inputmode="numeric" placeholder="••••"></div>
-    <button class="btn bp bfl" onclick="definirSenha()">Definir e entrar</button>
-  </div>
-</div>
 </div>
 
 <!-- APP -->
@@ -562,7 +544,7 @@ tbody tr:hover{background:var(--g50)}
       <div class="appav" id="bav">—</div>
       <span class="appname" id="bun">—</span>
     </div>
-    <button class="btnout" onclick="logout()">Sair</button>
+    <button class="btnout" onclick="sbLogout()">Sair</button>
   </div>
   <nav class="navb" id="nav"></nav>
   <div class="ct" id="content"></div>
@@ -976,15 +958,16 @@ function startSession(u){
 }
 function logout(){
   if(A.sessao&&A.sessoesAtivas[A.sessao.id])delete A.sessoesAtivas[A.sessao.id];
-  addLog('Logout',A.sessao?A.sessao.nome:'—');A.sessao=null;A.pinBuf='';A.loginU=null;document.getElementById('sa').style.display='none';document.getElementById('sl').style.display='flex';document.getElementById('ticker').classList.remove('vis');show('step1',true);show('step2',false);show('step3',false);document.getElementById('btn-next').disabled=true;document.getElementById('usel-av').textContent='—';document.getElementById('usel-av').style.cssText='';document.getElementById('usel-name').textContent='Selecionar usuário';document.getElementById('lerr').style.display='none';document.getElementById('linfo').style.display='none';renderLoginUsers();}
+  addLog('Logout',A.sessao?A.sessao.nome:'—');A.sessao=null;A.pinBuf='';A.loginU=null;document.getElementById('sa').style.display='none';document.getElementById('sl').style.display='flex';document.getElementById('ticker').classList.remove('vis');show('step1',true);show('step2',false);show('step3',false);document.getElementById('btn-next').disabled=true;document.getElementById('usel-av').textContent='—';document.getElementById('usel-av').style.cssText='';document.getElementById('usel-name').textContent='Selecionar usuário';document.getElementById('lerr').style.display='none';document.getElementById('linfo').style.display='none';/* login antigo desativado */}
 function showErr(m){document.getElementById('lerr').textContent=m;document.getElementById('lerr').style.display='block';}
 function show(id,v){document.getElementById(id).style.display=v?'block':'none';}
 
 // ── NAV ──
 function renderNav(){document.getElementById('nav').innerHTML=ABAS.filter(a=>A.sessao.abas.includes(a.id)).map(a=>`<button class="ntab" id="nt-${a.id}" onclick="goTab('${a.id}')">${a.icon} ${a.label}</button>`).join('');}
 function goTab(id){
-  if(!A.sessao.abas.includes(id))return;
+  if(!A.sessao||!A.sessao.abas||!A.sessao.abas.includes(id))return;
   window.__tabAtual=id;
+  if(!A.sessoesAtivas)A.sessoesAtivas={};
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
   document.getElementById('nt-'+id)?.classList.add('active');
   if(A.sessao&&A.sessoesAtivas[A.sessao.id]){
@@ -1903,7 +1886,7 @@ function openU(id){A.editU=id;const u=id?A.usuarios.find(x=>x.id===id):null;docu
   if(sdelEl)sdelEl.value='';
   document.getElementById('musr').classList.add('open');}
 function togP(el){el.classList.toggle('active');el.querySelector('.pch').textContent=el.classList.contains('active')?'✓':'';}
-async function saveUser(){const nome=document.getElementById('unome').value.trim();const perf=document.getElementById('uperf').value;const pinRaw=SEC.p(document.getElementById('upin').value);const abas=[...document.querySelectorAll('#uperms .pi2.active')].map(el=>el.dataset.id);if(!nome){alert('Informe o nome.');return;}if(!A.editU&&pinRaw.length<4){alert('Senha inicial: 4 a 6 dígitos.');return;}let hash='';if(pinRaw.length>=4)hash=await SEC.h(pinRaw);if(A.editU){const u=A.usuarios.find(x=>x.id===A.editU);if(u){u.nome=SEC.t(nome);u.perfil=perf;u.abas=abas;if(hash){u.pinHash=hash;u.provisoria=true;}}addLog('Usuário editado',nome);}else{A.usuarios.push({id:'u'+Date.now(),nome:SEC.t(nome),perfil:perf,pinHash:hash,provisoria:true,abas,ativo:true});addLog('Usuário criado',nome);}save();fM('musr');dUsers();renderLoginUsers();}
+async function saveUser(){const nome=document.getElementById('unome').value.trim();const perf=document.getElementById('uperf').value;const pinRaw=SEC.p(document.getElementById('upin').value);const abas=[...document.querySelectorAll('#uperms .pi2.active')].map(el=>el.dataset.id);if(!nome){alert('Informe o nome.');return;}if(!A.editU&&pinRaw.length<4){alert('Senha inicial: 4 a 6 dígitos.');return;}let hash='';if(pinRaw.length>=4)hash=await SEC.h(pinRaw);if(A.editU){const u=A.usuarios.find(x=>x.id===A.editU);if(u){u.nome=SEC.t(nome);u.perfil=perf;u.abas=abas;if(hash){u.pinHash=hash;u.provisoria=true;}}addLog('Usuário editado',nome);}else{A.usuarios.push({id:'u'+Date.now(),nome:SEC.t(nome),perfil:perf,pinHash:hash,provisoria:true,abas,ativo:true});addLog('Usuário criado',nome);}save();fM('musr');dUsers();/* login antigo desativado */}
 function togAtv(id){const u=A.usuarios.find(x=>x.id===id);if(!u)return;if(u.id===A.sessao.id){alert('Não é possível inativar o próprio usuário.');return;}u.ativo=!u.ativo;addLog(u.ativo?'Usuário ativado':'Usuário inativado',u.nome);save();dUsers();}
 function openReset(id){A.resetTarget=id;const u=A.usuarios.find(x=>x.id===id);document.getElementById('reset-user-info').textContent=u.nome+' ('+lp(u.perfil)+')';document.getElementById('reset-pw').value='';document.getElementById('mreset').classList.add('open');}
 async function confReset(){const pinRaw=SEC.p(document.getElementById('reset-pw').value);if(pinRaw.length<4){alert('Senha: 4 a 6 dígitos.');return;}const u=A.usuarios.find(x=>x.id===A.resetTarget);if(!u)return;u.pinHash=await SEC.h(pinRaw);u.provisoria=true;addLog('Senha resetada',u.nome);save();fM('mreset');dUsers();alert(`✅ Senha de ${u.nome} resetada.`);}
@@ -2766,8 +2749,9 @@ function dCtAudit(){
 // INICIALIZAÇÃO
 // ══════════════════════════════════════════
 load();
-migrarAbasUsuarios();
-initUsers().then(function(){renderLoginUsers();});
+try{migrarAbasUsuarios();}catch(e){}
+// Boot Supabase: tenta restaurar sessão salva
+setTimeout(function(){ if(typeof sbInitSession==='function')sbInitSession(); }, 400);
 
 // Expor funções no escopo global (onclick inline precisa de window.fn)
 
@@ -3909,7 +3893,7 @@ function cadastrarUsuario(){
     if(perfil==='admin'){
       try{sessionStorage.removeItem('__tokenEmergencia');}catch(e){}
     }
-    if(typeof renderLoginUsers==='function')renderLoginUsers();
+    if(typeof renderLoginUsers==='function')/* login antigo desativado */
     startSession(novo);
   });
 }
@@ -5200,6 +5184,122 @@ function mapaAprovadoLancamento(){
   });
   return mapa;
 }
+
+// ══════════════════════════════════════════
+// BLOCO 1 — LOGIN SUPABASE (e-mail/senha)
+// ══════════════════════════════════════════
+async function sbFazerLogin(){
+  var email=(document.getElementById('sb-email')||{}).value||'';
+  var senha=(document.getElementById('sb-senha')||{}).value||'';
+  var err=document.getElementById('lerr');
+  var btn=document.getElementById('sb-btn-login');
+  email=email.trim().toLowerCase();
+  if(!email||!senha){ if(err)err.textContent='Preencha e-mail e senha.'; return; }
+  if(!SB){ if(err)err.textContent='Supabase não inicializou. Recarregue a página.'; return; }
+  if(err)err.textContent='';
+  if(btn){btn.disabled=true;btn.textContent='Entrando...';}
+  try{
+    var r=await SB.auth.signInWithPassword({email:email,password:senha});
+    if(r.error){
+      if(err)err.textContent='E-mail ou senha incorretos.';
+      console.warn('login erro:', r.error.message);
+      if(btn){btn.disabled=false;btn.textContent='Entrar';}
+      return;
+    }
+    // Buscar perfil
+    await sbCarregarSessao(r.data.user);
+  }catch(e){
+    if(err)err.textContent='Erro ao entrar: '+e.message;
+    if(btn){btn.disabled=false;btn.textContent='Entrar';}
+  }
+}
+
+async function sbCarregarSessao(user){
+  var err=document.getElementById('lerr');
+  try{
+    var r=await SB.from('perfis').select('nome,perfil,ativo').eq('id',user.id).single();
+    if(r.error||!r.data){
+      if(err)err.textContent='Perfil não encontrado. Fale com o administrador.';
+      await SB.auth.signOut();
+      var btn=document.getElementById('sb-btn-login');
+      if(btn){btn.disabled=false;btn.textContent='Entrar';}
+      return;
+    }
+    if(!r.data.ativo){
+      if(err)err.textContent='Seu acesso está desativado. Fale com o administrador.';
+      await SB.auth.signOut();
+      return;
+    }
+    var perfil=r.data.perfil;
+    var abasPorPerfil={
+      admin:['importacao','inv_geral','central','confronto','torre','gerenciar'],
+      gestor:['importacao','inv_geral','central','confronto','torre'],
+      analista:['importacao','inv_geral','confronto','torre'],
+      auditor:['inv_geral','confronto','torre'],
+      operador:['inv_geral']
+    };
+    A.sessao={
+      id:user.id,
+      email:user.email,
+      nome:r.data.nome||user.email.split('@')[0],
+      perfil:perfil,
+      abas:abasPorPerfil[perfil]||['inv_geral']
+    };
+    window.__sbUser=user;
+    // Registrar sessão ativa (para telão/central)
+    if(!A.sessoesAtivas)A.sessoesAtivas={};
+    A.sessoesAtivas[user.id]={nome:A.sessao.nome,perfil:perfil,modulo:'',status:'online',inicio:Date.now(),ultimo:Date.now()};
+    save();
+    console.log('✅ Logado:', A.sessao.nome, '·', perfil);
+    // Trocar telas
+    var sl=document.getElementById('sl'); if(sl)sl.style.display='none';
+    document.body.classList.add('logged');
+    mostrarApp();
+  }catch(e){
+    if(err)err.textContent='Erro ao carregar perfil: '+e.message;
+    console.error(e);
+  }
+}
+
+async function sbLogout(){
+  try{ if(SB)await SB.auth.signOut(); }catch(e){}
+  if(A.sessao&&A.sessoesAtivas)delete A.sessoesAtivas[A.sessao.id];
+  A.sessao=null;
+  window.__sbUser=null;
+  save();
+  location.reload();
+}
+
+// Ao carregar a página, ver se já existe sessão Supabase salva
+async function sbInitSession(){
+  if(!SB)return;
+  try{
+    var r=await SB.auth.getSession();
+    if(r.data&&r.data.session&&r.data.session.user){
+      await sbCarregarSessao(r.data.session.user);
+    }
+  }catch(e){ console.warn('sbInitSession:', e); }
+}
+
+function mostrarApp(){
+  console.log('▶️ mostrarApp iniciando. Sessão:', A.sessao);
+  try{
+    var sl=document.getElementById('sl'); if(sl)sl.style.display='none';
+    var sa=document.getElementById('sa'); if(sa){sa.style.display='block';console.log('✅ #sa visível');}else{console.error('❌ #sa não encontrado');}
+    var bun=document.getElementById('bun'); if(bun)bun.textContent=A.sessao.nome;
+    var bav=document.getElementById('bav'); if(bav)bav.textContent=A.sessao.nome.charAt(0).toUpperCase();
+  }catch(e){console.error('erro trocar telas:',e);}
+  try{
+    if(typeof renderNav==='function'){renderNav();console.log('✅ renderNav ok');}
+  }catch(e){console.error('❌ renderNav falhou:',e);}
+  try{
+    var first=ABAS.find(function(a){return A.sessao.abas.includes(a.id);});
+    console.log('Primeira aba:', first?first.id:'nenhuma');
+    if(first&&typeof goTab==='function'){goTab(first.id);console.log('✅ goTab('+first.id+') ok');}
+  }catch(e){console.error('❌ goTab falhou:',e);}
+  try{ if(typeof updateTicker==='function')updateTicker(); }catch(e){console.warn('ticker:',e);}
+  try{ if(typeof migrarAbasUsuarios==='function')migrarAbasUsuarios(); }catch(e){console.warn('migrar:',e);}
+}
 (function(){
   // Expor todas as funções no escopo global
   try{if(typeof save==='function')window.save=save;}catch(e){}
@@ -5338,6 +5438,11 @@ function mapaAprovadoLancamento(){
   try{if(typeof dUsers==='function')window.dUsers=dUsers;}catch(e){}
   try{if(typeof openReset==='function')window.openReset=openReset;}catch(e){}
   try{if(typeof migrarAbasUsuarios==='function')window['migrarAbasUsuarios']=migrarAbasUsuarios;}catch(e){}
+  try{if(typeof sbFazerLogin==='function')window['sbFazerLogin']=sbFazerLogin;}catch(e){}
+  try{if(typeof sbCarregarSessao==='function')window['sbCarregarSessao']=sbCarregarSessao;}catch(e){}
+  try{if(typeof sbLogout==='function')window['sbLogout']=sbLogout;}catch(e){}
+  try{if(typeof sbInitSession==='function')window['sbInitSession']=sbInitSession;}catch(e){}
+  try{if(typeof mostrarApp==='function')window['mostrarApp']=mostrarApp;}catch(e){}
 })();
 // ══════════════════════════════════════════════════════════════
 // FUNÇÕES NOVAS — Inventário Geral, Mapa CD, Central Gerencial
@@ -6071,7 +6176,7 @@ function confirmarSeg2(){
 }
 
 load();
-renderLoginUsers();
+/* login antigo desativado */
 </script>
 <div class="mb" id="m-semend"><div class="mo"><button class="mc" onclick="fM('m-semend')">×</button><div class="mtit">📍 Itens sem endereço ZWM</div><div class="fg"><input class="fi" id="semend-q" placeholder="🔍 Filtrar..." oninput="filtrarSemEnd()"></div><div id="semend-lista" style="max-height:400px;overflow-y:auto"></div></div></div></body>
 </html
