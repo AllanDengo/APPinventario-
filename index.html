@@ -1012,6 +1012,11 @@ function pFile(file,t){
 function parseProd(rows,fn){if(!rows.length){st2('p','err','❌ Vazia');return;}const k=Object.keys(rows[0]);const cS=k.find(x=>/produto|sku|^material/i.test(x))||k[0];const cD=k.find(x=>/descri/i.test(x))||k[1];const cC=k.find(x=>/preço|custo|preco/i.test(x))||k[13];const cU=k.find(x=>/\bumb\b|\bunidade\b/i.test(x))||'';A.dados.produtos=[];rows.forEach(r=>{const sk=SEC.k(r[cS]);if(!sk)return;A.dados.produtos.push({sku:sk,desc:SEC.t(r[cD]||''),custo:SEC.n(r[cC]),um:SEC.t(r[cU]||'UN')});});LD.p=true;A.prodDataImport=String(Date.now());save();st2('p','ok',`✅ ${A.dados.produtos.length.toLocaleString('pt-BR')} produtos`);addLog('Upload Produtos',fn);}
 function parseSaldo(rows,fn){
   if(!rows.length){st2('s','err','❌ Vazia');return;}
+  // Verifica se há inventário ativo — pode obrigar reset
+  if(!confirmarAtualizacaoBase('Saldo de Estoque')){
+    st2('s','wrn','⏸️ Atualização cancelada');
+    return;
+  }
   const k=Object.keys(rows[0]);
   // SKU/Material
   const cS=k.find(x=>/^material$|^sku$/i.test(x))||k.find(x=>/^c[oó]d.*mat|^mat.*n[uú]/i.test(x))||k[0];
@@ -1043,7 +1048,9 @@ function parseSaldo(rows,fn){
       });
       if(best)desc=SEC.t(best);
     }
-    A.dados.saldo.push({sku:sk,desc,qtd:SEC.n(cQ?r[cQ]:0),valor:SEC.n(cV?r[cV]:0),dep:SEC.t(cDp?r[cDp]||'':''),lote:SEC.t(cL?r[cL]||'':''),fab:SEC.t(cFab?r[cFab]||'':''),val:SEC.t(cVal?r[cVal]||'':'')});
+    var rawFab=cFab?r[cFab]:'';
+    var rawVal=cVal?r[cVal]:'';
+    A.dados.saldo.push({sku:sk,desc,qtd:SEC.n(cQ?r[cQ]:0),valor:SEC.n(cV?r[cV]:0),dep:SEC.t(cDp?r[cDp]||'':''),lote:SEC.t(cL?r[cL]||'':''),fab:formatarData(rawFab),val:formatarData(rawVal)});
   });
   LD.s=true;
   A.saldoDataImport=String(Date.now());
@@ -1052,7 +1059,12 @@ function parseSaldo(rows,fn){
   st2('s','ok',`✅ ${A.dados.saldo.length.toLocaleString('pt-BR')} linhas — Ex.: ${ex?ex.sku+' · '+ex.desc:'ok'}`);
   addLog('Upload Saldo',fn);
 }
-function parseZWM(rows,fn){if(!rows.length){LD.z=true;st2('z','wrn','⚠️ Vazia');return;}const k=Object.keys(rows[0]);const cS=k.find(x=>/^material$/i.test(x))||k[0];const cD=k.find(x=>/texto|descri/i.test(x))||k[1];const cP=k.find(x=>/posição|posicao/i.test(x))||k[6];const cDp=k.find(x=>/depósito|deposito/i.test(x))||k[5];const cQ=k.find(x=>/utilização livre|livre/i.test(x))||k[7];const cL=k.find(x=>/^lote$/i.test(x))||k[2];A.dados.zwm=[];rows.forEach(r=>{const sk=SEC.k(r[cS]);if(!sk)return;A.dados.zwm.push({sku:sk,desc:SEC.t(r[cD]||''),pos:SEC.t(String(r[cP]||'')),dep:SEC.t(r[cDp]||''),qtdZ:SEC.n(r[cQ]),lote:SEC.t(r[cL]||'')});});A.zwmDataImport=String(Date.now());save();LD.z=true;st2('z','ok',`✅ ${A.dados.zwm.length} endereços`);addLog('Upload ZWM',fn);}
+function parseZWM(rows,fn){if(!rows.length){LD.z=true;st2('z','wrn','⚠️ Vazia');return;}
+  // Verifica se há inventário ativo — pode obrigar reset
+  if(!confirmarAtualizacaoBase('ZWM (Endereços)')){
+    st2('z','wrn','⏸️ Atualização cancelada');
+    return;
+  }const k=Object.keys(rows[0]);const cS=k.find(x=>/^material$/i.test(x))||k[0];const cD=k.find(x=>/texto|descri/i.test(x))||k[1];const cP=k.find(x=>/posição|posicao/i.test(x))||k[6];const cDp=k.find(x=>/depósito|deposito/i.test(x))||k[5];const cQ=k.find(x=>/utilização livre|livre/i.test(x))||k[7];const cL=k.find(x=>/^lote$/i.test(x))||k[2];A.dados.zwm=[];rows.forEach(r=>{const sk=SEC.k(r[cS]);if(!sk)return;A.dados.zwm.push({sku:sk,desc:SEC.t(r[cD]||''),pos:SEC.t(String(r[cP]||'')),dep:SEC.t(r[cDp]||''),qtdZ:SEC.n(r[cQ]),lote:SEC.t(r[cL]||'')});});A.zwmDataImport=String(Date.now());save();LD.z=true;st2('z','ok',`✅ ${A.dados.zwm.length} endereços`);addLog('Upload ZWM',fn);}
 function parseMov(rows,fn){if(!rows.length){LD.m=true;st2('m','wrn','⚠️ Vazia');return;}const k=Object.keys(rows[0]);const cS=k.find(x=>/^material$/i.test(x))||k[1];const cD=k.find(x=>/texto|descri/i.test(x))||k[2];const cDt=k.find(x=>/data.*lançamento|data/i.test(x))||k[5];const cQ=k.find(x=>/^quantidade$/i.test(x))||k[6];const cDp=k.find(x=>/depósito|deposito/i.test(x))||k[3];A.dados.mov=[];rows.forEach(r=>{const sk=SEC.k(r[cS]);if(!sk)return;let dt=r[cDt];if(dt instanceof Date)dt=dt.getTime();else if(typeof dt==='string')dt=new Date(dt).getTime();else dt=0;A.dados.mov.push({sku:sk,desc:SEC.t(r[cD]||''),qtd:SEC.n(r[cQ]),dep:SEC.t(r[cDp]||''),dt});});LD.m=true;A.movDataImport=String(Date.now());save();st2('m','ok',`✅ ${A.dados.mov.length} movimentações`);addLog('Upload Movimentação',fn);}
 function st2(t,lv,m){const e=document.getElementById('st'+t);if(e)e.innerHTML=`<div class="stag s${lv}">${m}</div>`;}
 function chkBtn(){const b=document.getElementById('bproc');if(b)b.disabled=!(LD.p&&LD.s);}
@@ -2991,6 +3003,13 @@ function confirmarBipe(){
   if(!qtd||qtd<=0){alert('Informe a quantidade.');document.getElementById('bc-qtd')?.focus();return;}
   var sk=A.dados.skus.find(function(s){return s.sku===skuVal;});
   if(!sk){alert('SKU '+skuVal+' não encontrado.');return;}
+  // Validação de datas: validade não pode ser < fabricação nem estar vencida
+  var erroData=validarDatas(fab,val);
+  if(erroData){
+    alert('⚠️ '+erroData+'\n\nCorrija antes de confirmar.');
+    document.getElementById('bc-val')?.focus();
+    return;
+  }
   igRegistrar(sk.sku,sk.desc,sk.um||'UN',lote,qtd,pos,_posAtual?.dep||'',fab,val);
   fecharMiniFormBipe();
   // Feedback visual no campo de bipe
@@ -5868,10 +5887,34 @@ function parseCodigoBipado(codBruto){
 }
 
 function formatarData(txt){
-  // Normaliza para DD/MM/AA
-  var s=String(txt||'').replace(/[.\-]/g,'/');
+  // Normaliza para DD/MM/AA (aceita entradas variadas)
+  if(!txt&&txt!==0)return '';
+  var s=String(txt).trim();
+  if(!s)return '';
+  // Se for objeto Date do Excel/número serial, converter
+  if(s instanceof Date){
+    var dd=String(s.getDate()).padStart(2,'0');
+    var mm=String(s.getMonth()+1).padStart(2,'0');
+    var yy=String(s.getFullYear()).slice(-2);
+    return dd+'/'+mm+'/'+yy;
+  }
+  // Trocar separadores por /
+  s=s.replace(/[.\-]/g,'/');
+  // DDMMAA sem separador -> DD/MM/AA
   if(/^\d{6}$/.test(s)){
     s=s.slice(0,2)+'/'+s.slice(2,4)+'/'+s.slice(4,6);
+  }
+  // DDMMAAAA sem separador -> DD/MM/AA
+  else if(/^\d{8}$/.test(s)){
+    s=s.slice(0,2)+'/'+s.slice(2,4)+'/'+s.slice(6,8);
+  }
+  // DD/MM/AAAA -> DD/MM/AA (pega os 2 últimos do ano)
+  var m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(m){
+    var d=m[1].padStart(2,'0');
+    var mo=m[2].padStart(2,'0');
+    var y=m[3].length===4?m[3].slice(-2):m[3];
+    return d+'/'+mo+'/'+y;
   }
   return s;
 }
@@ -5889,6 +5932,114 @@ function complementarComSaldo(parsed){
     parsed.saldoEncontrado=true;
   }
   return parsed;
+}
+
+// Valida um par fabricação/validade. Retorna string de erro ou '' se ok.
+function validarDatas(fabStr,valStr){
+  var d=parseDataParaData(valStr);
+  var f=parseDataParaData(fabStr);
+  if(valStr && !d) return 'Validade em formato inválido ("'+valStr+'"). Use DD/MM/AA.';
+  if(fabStr && !f) return 'Fabricação em formato inválido ("'+fabStr+'"). Use DD/MM/AA.';
+  if(d && f && d < f) return 'A validade ('+valStr+') está antes da fabricação ('+fabStr+').';
+  if(d){
+    var hoje=new Date();
+    hoje.setHours(0,0,0,0);
+    if(d < hoje) return 'Este item está VENCIDO (validade '+valStr+', hoje '+hoje.toLocaleDateString('pt-BR')+').';
+  }
+  return '';
+}
+
+// Converte string DD/MM/AA ou DD/MM/AAAA para objeto Date (ou null)
+function parseDataParaData(txt){
+  if(!txt)return null;
+  var s=String(txt).trim().replace(/[.\-]/g,'/');
+  var m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(!m)return null;
+  var dd=parseInt(m[1],10);
+  var mm=parseInt(m[2],10);
+  var yy=parseInt(m[3],10);
+  if(yy<100) yy = 2000+yy; // AA -> 20AA
+  if(dd<1||dd>31||mm<1||mm>12)return null;
+  var d=new Date(yy,mm-1,dd);
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+// ══════ ABANDONAR INVENTÁRIO (por atualização de base) ══════
+// Chamada quando Saldo/ZWM é atualizado durante inventário ativo.
+// Só admin ou analista pode. Salva em histórico como "abandonado".
+function podeAtualizarBase(){
+  return A.sessao && (A.sessao.perfil==='admin' || A.sessao.perfil==='analista');
+}
+
+function abandonarInventarioAtual(motivo){
+  var s=A.invGeral.sessao;
+  if(!s)return true; // não há inventário, nada a fazer
+  // Salva no histórico local como abandonado
+  if(!A.invGeral.hist)A.invGeral.hist=[];
+  var contagens=(A.invGeral.contagens||[]).filter(function(c){return c.end;});
+  A.invGeral.hist.push({
+    id:s.id,
+    ts:s.tsInicio,
+    tsFmt:s.tsFmt,
+    tsFim:new Date().toLocaleString('pt-BR'),
+    classe:'GERAL',
+    dep:s.dep||'todos',
+    total:s.itens.length,
+    ok:0,dvg:0,skip:0,pend:s.itens.length,
+    contagensSalvas:contagens.length,
+    operador:s.criadoPor,
+    status:'abandonado',
+    motivo:motivo||'Base atualizada',
+    tipo:'geral',
+    abandonadoPor:A.sessao?A.sessao.nome:''
+  });
+  // Encerra sessão no Supabase (marca como abandonada)
+  if(s.sbId && typeof SB!=='undefined' && SB){
+    try{
+      SB.from('sessoes_inventario').update({
+        status:'abandonada',
+        encerrado_em:new Date().toISOString()
+      }).eq('id',s.sbId).then(function(){});
+    }catch(e){ console.warn('sb abandonar:',e); }
+  }
+  addLog('Invent. abandonado', (s.nome||s.id)+' · '+(motivo||'base atualizada'));
+  __sbLastContHash=null; // resetar hash do sync
+  A.invGeral.sessao=null;
+  A.invGeral.contagens=[];
+  A.invGeral.fila2=[];
+  save();
+  return true;
+}
+
+// Wrapper: pergunta ao usuário antes de atualizar Saldo/ZWM
+// Retorna true se pode prosseguir com o parse, false se cancelar.
+function confirmarAtualizacaoBase(tipoBase){
+  // Se não há inventário ativo, pode importar direto
+  if(!A.invGeral.sessao) return true;
+  // Só admin/analista pode
+  if(!podeAtualizarBase()){
+    alert('⚠️ Há um inventário em andamento.\n\nApenas administradores ou analistas podem atualizar a base de '+tipoBase+' com um inventário ativo.\n\nPeça a um deles para prosseguir, ou aguarde o inventário atual ser encerrado.');
+    return false;
+  }
+  // Confirmação
+  var s=A.invGeral.sessao;
+  var contagens=(A.invGeral.contagens||[]).length;
+  var msg='⚠️ ATENÇÃO — Inventário em andamento\n\n'+
+    'Inventário atual: '+(s.nome||s.id)+'\n'+
+    'Iniciado em: '+(s.tsFmt||'')+'\n'+
+    'Contagens realizadas: '+contagens+'\n\n'+
+    'Ao atualizar o '+tipoBase+', o inventário atual será:\n'+
+    '  • Marcado como ABANDONADO no histórico\n'+
+    '  • As contagens ficam guardadas para auditoria\n'+
+    '  • Um novo inventário precisará ser criado\n\n'+
+    'Deseja continuar?';
+  if(!confirm(msg))return false;
+  // Segunda confirmação (evitar acidente)
+  if(!confirm('CONFIRMAÇÃO FINAL\n\nO inventário "'+(s.nome||s.id)+'" será encerrado como abandonado.\n\nContinuar?'))return false;
+  // Abandona e prossegue
+  abandonarInventarioAtual('Atualização de '+tipoBase);
+  return true;
 }
 (function(){
   // Expor todas as funções no escopo global
@@ -6069,6 +6220,11 @@ function complementarComSaldo(parsed){
   try{if(typeof abrirMiniFormBipe==='function')window['abrirMiniFormBipe']=abrirMiniFormBipe;}catch(e){}
   try{if(typeof fecharMiniFormBipe==='function')window['fecharMiniFormBipe']=fecharMiniFormBipe;}catch(e){}
   try{if(typeof confirmarBipe==='function')window['confirmarBipe']=confirmarBipe;}catch(e){}
+  try{if(typeof validarDatas==='function')window['validarDatas']=validarDatas;}catch(e){}
+  try{if(typeof parseDataParaData==='function')window['parseDataParaData']=parseDataParaData;}catch(e){}
+  try{if(typeof podeAtualizarBase==='function')window['podeAtualizarBase']=podeAtualizarBase;}catch(e){}
+  try{if(typeof abandonarInventarioAtual==='function')window['abandonarInventarioAtual']=abandonarInventarioAtual;}catch(e){}
+  try{if(typeof confirmarAtualizacaoBase==='function')window['confirmarAtualizacaoBase']=confirmarAtualizacaoBase;}catch(e){}
 })();
 // ══════════════════════════════════════════════════════════════
 // FUNÇÕES NOVAS — Inventário Geral, Mapa CD, Central Gerencial
