@@ -6041,6 +6041,57 @@ function confirmarAtualizacaoBase(tipoBase){
   abandonarInventarioAtual('Atualização de '+tipoBase);
   return true;
 }
+
+// ══════ REINICIAR INVENTÁRIO (apaga tudo — zero limpo) ══════
+// Analista, gestor e admin podem. Dupla confirmação. Log obrigatório.
+async function reiniciarInventarioLimpo(){
+  var perm=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
+  if(!perm){alert('⚠️ Apenas analista, gestor ou administrador podem reiniciar o inventário.');return;}
+  var s=A.invGeral.sessao;
+  if(!s){alert('Nenhum inventário ativo para reiniciar.');return;}
+  var contagens=(A.invGeral.contagens||[]).length;
+  // Primeira confirmação
+  var msg1='🔄 REINICIAR INVENTÁRIO\n\n'+
+    'Inventário atual: '+(s.nome||s.id)+'\n'+
+    'Contagens registradas: '+contagens+'\n\n'+
+    '⚠️ Esta ação vai APAGAR PERMANENTEMENTE:\n'+
+    '  • O inventário atual\n'+
+    '  • Todas as '+contagens+' contagem(ns) já feitas\n'+
+    '  • Todo o progresso das posições\n\n'+
+    'Não haverá como recuperar depois.\n\n'+
+    'Deseja realmente reiniciar?';
+  if(!confirm(msg1))return;
+  // Segunda confirmação — precisa digitar REINICIAR
+  var conf=prompt('CONFIRMAÇÃO FINAL\n\nPara confirmar que quer APAGAR TUDO e reiniciar, digite a palavra abaixo:\n\nREINICIAR');
+  if(conf!=='REINICIAR'){
+    if(conf!==null)alert('❌ Palavra incorreta. Reinicialização cancelada.');
+    return;
+  }
+  // Encerra sessão no Supabase (marca como reiniciada, contagens somem do sync)
+  if(s.sbId && typeof SB!=='undefined' && SB){
+    try{
+      await SB.from('sessoes_inventario').update({
+        status:'reiniciada',
+        encerrado_em:new Date().toISOString()
+      }).eq('id',s.sbId);
+      // Apaga também as contagens dessa sessão no banco (zero limpo)
+      await SB.from('contagens').delete().eq('sessao_id',s.sbId);
+      console.log('🔄 Sessão + contagens reiniciadas no Supabase');
+    }catch(e){ console.warn('sb reiniciar:',e); }
+  }
+  // Log detalhado (fica em A.log)
+  addLog('Invent. REINICIADO', (s.nome||s.id)+' · '+contagens+' contagem(ns) apagadas · por '+(A.sessao?A.sessao.nome:'?'));
+  // Zera tudo local
+  __sbLastContHash=null;
+  A.invGeral.sessao=null;
+  A.invGeral.contagens=[];
+  A.invGeral.fila2=[];
+  A.invGeral.endAtivo=null;
+  A.invGeral._vazias=new Set();
+  save();
+  dInvGeral();
+  alert('✅ Inventário reiniciado. Agora você pode criar um novo com a base atualizada.');
+}
 (function(){
   // Expor todas as funções no escopo global
   try{if(typeof save==='function')window.save=save;}catch(e){}
@@ -6225,6 +6276,7 @@ function confirmarAtualizacaoBase(tipoBase){
   try{if(typeof podeAtualizarBase==='function')window['podeAtualizarBase']=podeAtualizarBase;}catch(e){}
   try{if(typeof abandonarInventarioAtual==='function')window['abandonarInventarioAtual']=abandonarInventarioAtual;}catch(e){}
   try{if(typeof confirmarAtualizacaoBase==='function')window['confirmarAtualizacaoBase']=confirmarAtualizacaoBase;}catch(e){}
+  try{if(typeof reiniciarInventarioLimpo==='function')window['reiniciarInventarioLimpo']=reiniciarInventarioLimpo;}catch(e){}
 })();
 // ══════════════════════════════════════════════════════════════
 // FUNÇÕES NOVAS — Inventário Geral, Mapa CD, Central Gerencial
@@ -6457,6 +6509,18 @@ function dInvGeral(){
   var pct=endsTot.length?Math.min(100,Math.round(ends.length/endsTot.length*100)):0;
   var abaAtual=A.invGeral._abaView||'primeira';
   var html='';
+  // Painel de ações admin/analista/gestor (encerrar + reiniciar)
+  var podeGerenciar=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
+  if(podeGerenciar){
+    html+='<div style="background:#FFF8E7;border:1.5px solid #F0D688;border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:200px"><div style="font-size:11px;font-weight:700;color:var(--cacau);text-transform:uppercase;margin-bottom:2px">⚙️ Ações do inventário</div>'+
+      '<div style="font-size:11px;color:var(--g500)">Encerra normal ou reinicia do zero (uso restrito).</div></div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+        '<button onclick="encerrarIG()" style="background:var(--gr);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer">🔒 Encerrar</button>'+
+        '<button onclick="reiniciarInventarioLimpo()" style="background:#FDF5F5;color:var(--rd);border:1.5px solid var(--rd);border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer">🔄 Reiniciar</button>'+
+      '</div>'+
+    '</div>';
+  }
   html+='<div style="display:flex;gap:6px;margin-bottom:14px">'+
     '<button onclick="igSetAba(\'primeira\')" style="flex:1;min-width:180px;padding:16px 24px;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;border:2px solid '+(abaAtual==='primeira'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">📋 1ª Contagem</button>'+
     '<button onclick="igSetAba(\'segunda\')" style="flex:1;min-width:180px;position:relative;padding:16px 24px;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;border:2px solid '+(abaAtual==='segunda'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">🔄 2ª Contagem'+
