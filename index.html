@@ -2910,111 +2910,135 @@ function igBip(){
   var cod=inp.value.trim();if(!cod)return;
   var pos=_posAtual?_posAtual.pos:'';if(!pos){alert('Nenhuma posição aberta.');return;}
   inp.value='';
-  // 1) Tenta identificar SKU simples (só 7 dígitos = digitação manual)
+  limparErroBipe(true);
+  // 1) SKU puro digitado à mão (sem código de barras real) — único caso que ainda
+  //    precisa de confirmação manual, porque não há nenhum dado de lote/data/qtd pra extrair.
   if(/^\d{7}$/.test(cod)){
-    // Modo compat: SKU puro. Abre o mini-form apenas com SKU pré-preenchido.
-    abrirMiniFormBipe({sku:cod,lote:'',fab:'',val:'',qtd:0,ok:true,raw:cod,soManual:true});
+    abrirFormSkuManual(cod);
     return;
   }
-  // 2) Parser inteligente da string completa
+  // 2) Parser inteligente da string completa (âncora = SKU de 7 dígitos)
   var parsed=parseCodigoBipado(cod);
   if(!parsed.ok){
-    inp.style.borderColor='var(--rd)';inp.placeholder='❌ '+parsed.msg;
-    setTimeout(function(){inp.style.borderColor='var(--ouro)';inp.placeholder='Bipe ou digite o SKU...';},2500);
-    inp.focus();return;
+    mostrarErroBipe(parsed.msg||'Código não reconhecido',cod);
+    return;
   }
   // 3) Complementa com saldo (validade/fabricação se lote existir lá)
   complementarComSaldo(parsed);
-  // 4) Abre mini-form de confirmação
-  abrirMiniFormBipe(parsed);
-}
-
-// Mini-form de confirmação — mostra SKU/desc/lote/fab/val/qtd já preenchidos
-function abrirMiniFormBipe(parsed){
-  var pos=_posAtual?_posAtual.pos:'';
   var sk=A.dados.skus.find(function(s){return s.sku===parsed.sku;});
   if(!sk){
-    alert('❌ SKU '+parsed.sku+' não encontrado na Lista de Produtos.');
-    document.getElementById('ig-bip')?.focus();
+    mostrarErroBipe('SKU '+parsed.sku+' não encontrado na Lista de Produtos',cod);
     return;
   }
-  var desc=sk.desc||'';
-  var um=sk.um||'UN';
-  var badgeSaldo=parsed.saldoEncontrado?'<span style="background:#EBF5EB;color:#1A4A1A;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700">✓ SALDO</span>':'';
-  var html=
-    '<div id="bipe-confirm" style="background:#FFF8E7;border:2px solid var(--ouro);border-radius:10px;padding:14px;margin-top:12px">'+
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
-        '<div style="font-size:11px;font-weight:700;color:var(--cacau);text-transform:uppercase">✅ Confirmar bipe '+badgeSaldo+'</div>'+
-        '<button onclick="fecharMiniFormBipe()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--g500);line-height:1">×</button>'+
-      '</div>'+
-      '<div style="font-size:12px;color:var(--g600);margin-bottom:10px"><strong>'+SEC.t(parsed.sku)+'</strong> — '+SEC.t(desc)+' <span style="color:var(--g400)">('+um+')</span></div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'+
-        '<div><div style="font-size:10px;font-weight:600;color:var(--g500);margin-bottom:3px">Lote</div><input class="fi" id="bc-lote" value="'+SEC.t(parsed.lote)+'" style="font-size:12px"></div>'+
-        '<div><div style="font-size:10px;font-weight:600;color:var(--g500);margin-bottom:3px">Quantidade</div><input class="fi" id="bc-qtd" type="number" step="0.001" value="'+(parsed.qtd||'')+'" style="font-size:12px"></div>'+
-        '<div><div style="font-size:10px;font-weight:600;color:var(--g500);margin-bottom:3px">Fabricação</div><input class="fi" id="bc-fab" value="'+SEC.t(parsed.fab)+'" placeholder="DD/MM/AA" style="font-size:12px"></div>'+
-        '<div><div style="font-size:10px;font-weight:600;color:var(--g500);margin-bottom:3px">Validade</div><input class="fi" id="bc-val" value="'+SEC.t(parsed.val)+'" placeholder="DD/MM/AA" style="font-size:12px"></div>'+
-      '</div>'+
-      '<div style="display:flex;gap:8px">'+
-        '<button onclick="confirmarBipe()" style="flex:1;background:var(--cacau);color:var(--ouro);border:none;border-radius:8px;padding:10px;font-weight:700;cursor:pointer;font-size:13px">✅ Confirmar (Enter)</button>'+
-        '<button onclick="fecharMiniFormBipe()" style="background:var(--branco);color:var(--g500);border:1.5px solid var(--g200);border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;font-size:12px">Cancelar</button>'+
-      '</div>'+
-      (parsed.raw?'<div style="font-size:9px;color:var(--g400);margin-top:8px;font-family:monospace">Bipe: '+SEC.t(parsed.raw)+'</div>':'')+
-    '</div>';
-  // Inserir logo abaixo do campo de bipe
-  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
-  // Remove anterior se houver
-  var old=document.getElementById('bipe-confirm');if(old)old.remove();
-  if(container){
-    container.insertAdjacentHTML('afterend', html);
-    setTimeout(function(){
-      var qi=document.getElementById('bc-qtd');
-      if(qi){
-        if(!parsed.qtd)qi.focus();else document.getElementById('bc-lote')?.focus();
-        // Enter em qualquer campo confirma
-        ['bc-lote','bc-qtd','bc-fab','bc-val'].forEach(function(id){
-          var el=document.getElementById(id);
-          if(el)el.onkeydown=function(e){if(e.key==='Enter')confirmarBipe();};
-        });
-      }
-    },50);
+  if(!parsed.qtd||parsed.qtd<=0){
+    mostrarErroBipe('Quantidade não identificada no bipe',cod);
+    return;
   }
+  // 4) Valida datas só se o bipe trouxe alguma (itens sem lote/validade não têm o que validar)
+  var erroData=(parsed.fab||parsed.val)?validarDatas(parsed.fab,parsed.val):'';
+  if(erroData){
+    mostrarErroBipe(erroData,cod);
+    return;
+  }
+  // 5) Tudo certo — registra automaticamente, sem Enter nem clique de confirmação
+  igRegistrar(sk.sku,sk.desc,sk.um||'UN',parsed.lote,parsed.qtd,pos,_posAtual?.dep||'',parsed.fab,parsed.val);
+  mostrarUltimoBipe(sk,parsed);
+  inp.focus();
 }
 
-function fecharMiniFormBipe(){
-  var el=document.getElementById('bipe-confirm');if(el)el.remove();
+// Erro de leitura — trava até o operador limpar, pra não deixar passar etiqueta errada/incompleta
+function mostrarErroBipe(msg,raw){
+  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
+  if(!container)return;
+  var old=document.getElementById('bipe-ultimo');if(old)old.remove();
+  var oldErr=document.getElementById('bipe-erro');if(oldErr)oldErr.remove();
+  var html=
+    '<div id="bipe-erro" style="background:#FBEAEA;border:2px solid var(--rd);border-radius:10px;padding:12px 14px;margin-top:12px">'+
+      '<div style="font-size:12px;font-weight:700;color:var(--rd);margin-bottom:4px">❌ '+SEC.t(msg)+'</div>'+
+      (raw?'<div style="font-size:10px;color:var(--g500);font-family:monospace;margin-bottom:8px">Bipe: '+SEC.t(raw)+'</div>':'')+
+      '<button onclick="limparErroBipe()" style="background:var(--rd);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer">🗑️ Limpar e tentar de novo</button>'+
+    '</div>';
+  container.insertAdjacentHTML('afterend',html);
+  var inp=document.getElementById('ig-bip');if(inp)inp.style.borderColor='var(--rd)';
+}
+function limparErroBipe(silencioso){
+  var err=document.getElementById('bipe-erro');if(err)err.remove();
+  var inp=document.getElementById('ig-bip');
+  if(inp){inp.style.borderColor='var(--ouro)';if(!silencioso)inp.focus();}
+}
+
+// Feedback do último item bipado com sucesso — somente leitura, substituído a cada novo bipe.
+// A tabela "Itens contados" (abaixo) continua somando normalmente, sem depender deste aviso.
+function mostrarUltimoBipe(sk,parsed){
+  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
+  if(!container)return;
+  var old=document.getElementById('bipe-ultimo');if(old)old.remove();
+  var badgeSaldo=parsed.saldoEncontrado?'<span style="background:#EBF5EB;color:#1A4A1A;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;margin-left:6px">✓ SALDO</span>':'';
+  var campos=[];
+  if(parsed.lote)campos.push({l:'Lote',v:parsed.lote});
+  campos.push({l:'Quantidade',v:parsed.qtd+' '+(sk.um||'UN')});
+  if(parsed.fab)campos.push({l:'Fabricação',v:parsed.fab});
+  if(parsed.val)campos.push({l:'Validade',v:parsed.val});
+  var camposHtml=campos.map(function(c){
+    return '<div><div style="font-size:9px;font-weight:600;color:var(--g500);text-transform:uppercase;margin-bottom:2px">'+c.l+'</div>'+
+      '<div style="font-size:13px;font-weight:700;color:var(--cacau)">'+SEC.t(String(c.v))+'</div></div>';
+  }).join('');
+  var html=
+    '<div id="bipe-ultimo" style="background:#EBF5EB;border:2px solid #5BA85B;border-radius:10px;padding:12px 14px;margin-top:12px">'+
+      '<div style="font-size:11px;font-weight:700;color:#1A4A1A;text-transform:uppercase;margin-bottom:8px">✅ Registrado'+badgeSaldo+'</div>'+
+      '<div style="font-size:12px;color:var(--g600);margin-bottom:8px"><strong>'+SEC.t(sk.sku)+'</strong> — '+SEC.t(sk.desc||'')+'</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">'+camposHtml+'</div>'+
+    '</div>';
+  container.insertAdjacentHTML('afterend',html);
+  var inp=document.getElementById('ig-bip');
+  if(inp){inp.style.borderColor='#5BA85B';setTimeout(function(){if(inp)inp.style.borderColor='var(--ouro)';},600);}
+}
+
+// SKU puro digitado à mão (sem código de barras real) — não há dado nenhum pra extrair,
+// então é o único caso que ainda pede uma confirmação (só a quantidade).
+function abrirFormSkuManual(sku){
+  var sk=A.dados.skus.find(function(s){return s.sku===sku;});
+  if(!sk){
+    mostrarErroBipe('SKU '+sku+' não encontrado na Lista de Produtos',sku);
+    return;
+  }
+  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
+  if(!container)return;
+  var old=document.getElementById('bipe-ultimo');if(old)old.remove();
+  var oldErr=document.getElementById('bipe-erro');if(oldErr)oldErr.remove();
+  var oldForm=document.getElementById('sku-manual-form');if(oldForm)oldForm.remove();
+  var html=
+    '<div id="sku-manual-form" data-sku="'+SEC.t(sk.sku)+'" style="background:#FFF8E7;border:2px solid var(--ouro);border-radius:10px;padding:14px;margin-top:12px">'+
+      '<div style="font-size:11px;font-weight:700;color:var(--cacau);text-transform:uppercase;margin-bottom:8px">✏️ Informar quantidade</div>'+
+      '<div style="font-size:12px;color:var(--g600);margin-bottom:10px"><strong>'+SEC.t(sk.sku)+'</strong> — '+SEC.t(sk.desc||'')+'</div>'+
+      '<div style="display:flex;gap:8px">'+
+        '<input class="fi" id="sm-qtd" type="number" step="0.001" placeholder="Quantidade" style="flex:1;font-size:14px">'+
+        '<button onclick="confirmarSkuManual()" style="background:var(--cacau);color:var(--ouro);border:none;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;font-size:13px">✅ Confirmar</button>'+
+        '<button onclick="fecharFormSkuManual()" style="background:var(--branco);color:var(--g500);border:1.5px solid var(--g200);border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer;font-size:12px">Cancelar</button>'+
+      '</div>'+
+    '</div>';
+  container.insertAdjacentHTML('afterend',html);
+  setTimeout(function(){
+    var qi=document.getElementById('sm-qtd');
+    if(qi){qi.focus();qi.onkeydown=function(e){if(e.key==='Enter')confirmarSkuManual();};}
+  },50);
+}
+function fecharFormSkuManual(){
+  var el=document.getElementById('sku-manual-form');if(el)el.remove();
   document.getElementById('ig-bip')?.focus();
 }
-
-function confirmarBipe(){
+function confirmarSkuManual(){
+  var form=document.getElementById('sku-manual-form');if(!form)return;
   var pos=_posAtual?_posAtual.pos:'';if(!pos){alert('Nenhuma posição aberta.');return;}
-  var sku=document.getElementById('bipe-confirm')?.getAttribute('data-sku')||''; // não uso
-  // Pega dados do form
-  var lote=SEC.t(document.getElementById('bc-lote')?.value||'').trim();
-  var fab=SEC.t(document.getElementById('bc-fab')?.value||'').trim();
-  var val=SEC.t(document.getElementById('bc-val')?.value||'').trim();
-  var qtd=parseFloat(String(document.getElementById('bc-qtd')?.value||'').replace(',','.'))||0;
-  // SKU vem do estado (guardado no botão)
-  var el=document.getElementById('bipe-confirm');
-  var raw=el?el.querySelector('div[style*="monospace"]')?.textContent||'':'';
-  // Recuperar SKU do texto do header (é o primeiro <strong>)
-  var strong=el?.querySelector('strong');
-  var skuVal=strong?strong.textContent.trim():'';
-  if(!skuVal){alert('SKU não identificado.');return;}
-  if(!qtd||qtd<=0){alert('Informe a quantidade.');document.getElementById('bc-qtd')?.focus();return;}
-  var sk=A.dados.skus.find(function(s){return s.sku===skuVal;});
-  if(!sk){alert('SKU '+skuVal+' não encontrado.');return;}
-  // Validação de datas: validade não pode ser < fabricação nem estar vencida
-  var erroData=validarDatas(fab,val);
-  if(erroData){
-    alert('⚠️ '+erroData+'\n\nCorrija antes de confirmar.');
-    document.getElementById('bc-val')?.focus();
-    return;
-  }
-  igRegistrar(sk.sku,sk.desc,sk.um||'UN',lote,qtd,pos,_posAtual?.dep||'',fab,val);
-  fecharMiniFormBipe();
-  // Feedback visual no campo de bipe
-  var inp=document.getElementById('ig-bip');
-  if(inp){inp.style.borderColor='var(--gr)';setTimeout(function(){inp.style.borderColor='var(--ouro)';inp.focus();},600);}
+  var sku=form.getAttribute('data-sku')||'';
+  var qtd=parseFloat(String(document.getElementById('sm-qtd')?.value||'').replace(',','.'))||0;
+  if(!qtd||qtd<=0){alert('Informe a quantidade.');document.getElementById('sm-qtd')?.focus();return;}
+  var sk=A.dados.skus.find(function(s){return s.sku===sku;});
+  if(!sk){alert('SKU não encontrado.');return;}
+  igRegistrar(sk.sku,sk.desc,sk.um||'UN','',qtd,pos,_posAtual?.dep||'','','');
+  fecharFormSkuManual();
+  mostrarUltimoBipe(sk,{lote:'',qtd:qtd,fab:'',val:''});
+  document.getElementById('ig-bip')?.focus();
 }
 
 
@@ -3081,8 +3105,9 @@ function renderModalPosicao(){
   html+='<input type="text" id="ig-bip" placeholder="Bipe ou digite o SKU..." style="flex:1;border:2px solid var(--ouro);border-radius:10px;padding:10px 14px;font-size:15px;font-family:var(--fn);background:#fff">';
   html+='<button id="btn-ig-bip" style="background:var(--ouro);color:var(--cacau);border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:900;cursor:pointer">✅</button>';
   html+='</div></div>';
-  html+='<div style="border:1.5px solid var(--g200);border-radius:10px;padding:12px;margin-bottom:14px;background:#FAFAFA">';
-  html+='<div style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;margin-bottom:10px">✏️ Contagem manual</div>';
+  html+='<details id="det-manual" style="border:1.5px solid var(--g200);border-radius:10px;padding:12px;margin-bottom:14px;background:#FAFAFA">';
+  html+='<summary style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">✏️ Contagem manual <span style="font-size:10px;color:var(--g400);font-weight:400;text-transform:none;margin-left:auto">(clique para abrir)</span></summary>';
+  html+='<div style="margin-top:10px">';
   html+='<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
   html+='<div style="flex:1;min-width:120px"><div style="font-size:11px;font-weight:600;color:var(--g500);margin-bottom:4px">SKU</div><input class="fi" id="man-sku-ig" placeholder="SKU..."></div>';
   html+='<div style="flex:2;min-width:160px"><div style="font-size:11px;font-weight:600;color:var(--g500);margin-bottom:4px">Descrição</div><input class="fi" id="man-desc-ig" readonly style="background:var(--g50)"></div>';
@@ -3094,6 +3119,7 @@ function renderModalPosicao(){
   html+='</div>';
   html+='<button id="btn-man-add" style="background:var(--cacau);color:var(--ouro);border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;width:100%">➕ Adicionar à contagem</button>';
   html+='</div>';
+  html+='</details>';
   if(linhas.length){
     html+='<div style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;margin-bottom:8px">📦 Itens contados ('+linhas.length+')</div>';
     html+='<div style="max-height:200px;overflow-y:auto;border:1px solid var(--g200);border-radius:8px">';
@@ -5833,7 +5859,7 @@ function parseCodigoBipado(codBruto){
   var datas=[];
   var m;
   // Rodada 1: datas com separadores (mais confiáveis)
-  var re1=/\d{2}[.\/-]\d{2}[.\/-]\d{2}/g;
+  var re1=/\d{2}[.\/-]\d{2}[.\/-](?:(?:19|20)\d{2}|\d{2})/g;
   while((m=re1.exec(resto))){
     datas.push({txt:m[0],ini:m.index,fim:m.index+m[0].length,tipo:'sep'});
   }
@@ -6268,9 +6294,12 @@ async function reiniciarInventarioLimpo(){
   try{if(typeof parseCodigoBipado==='function')window['parseCodigoBipado']=parseCodigoBipado;}catch(e){}
   try{if(typeof formatarData==='function')window['formatarData']=formatarData;}catch(e){}
   try{if(typeof complementarComSaldo==='function')window['complementarComSaldo']=complementarComSaldo;}catch(e){}
-  try{if(typeof abrirMiniFormBipe==='function')window['abrirMiniFormBipe']=abrirMiniFormBipe;}catch(e){}
-  try{if(typeof fecharMiniFormBipe==='function')window['fecharMiniFormBipe']=fecharMiniFormBipe;}catch(e){}
-  try{if(typeof confirmarBipe==='function')window['confirmarBipe']=confirmarBipe;}catch(e){}
+  try{if(typeof mostrarErroBipe==='function')window['mostrarErroBipe']=mostrarErroBipe;}catch(e){}
+  try{if(typeof limparErroBipe==='function')window['limparErroBipe']=limparErroBipe;}catch(e){}
+  try{if(typeof mostrarUltimoBipe==='function')window['mostrarUltimoBipe']=mostrarUltimoBipe;}catch(e){}
+  try{if(typeof abrirFormSkuManual==='function')window['abrirFormSkuManual']=abrirFormSkuManual;}catch(e){}
+  try{if(typeof fecharFormSkuManual==='function')window['fecharFormSkuManual']=fecharFormSkuManual;}catch(e){}
+  try{if(typeof confirmarSkuManual==='function')window['confirmarSkuManual']=confirmarSkuManual;}catch(e){}
   try{if(typeof validarDatas==='function')window['validarDatas']=validarDatas;}catch(e){}
   try{if(typeof parseDataParaData==='function')window['parseDataParaData']=parseDataParaData;}catch(e){}
   try{if(typeof podeAtualizarBase==='function')window['podeAtualizarBase']=podeAtualizarBase;}catch(e){}
