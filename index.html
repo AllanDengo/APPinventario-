@@ -2974,6 +2974,8 @@ function mostrarUltimoBipe(sk,parsed){
   if(!container)return;
   var old=document.getElementById('bipe-ultimo');if(old)old.remove();
   var badgeSaldo=parsed.saldoEncontrado?'<span style="background:#EBF5EB;color:#1A4A1A;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;margin-left:6px">✓ SALDO</span>':'';
+  var vencido=isVencido(parsed.val);
+  var badgeVencido=vencido?'<span style="background:#FEF3C7;color:#92400E;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;margin-left:6px">⚠️ VENCIDO ('+diasVencido(parsed.val)+'d)</span>':'';
   var campos=[];
   if(parsed.lote)campos.push({l:'Lote',v:parsed.lote});
   campos.push({l:'Quantidade',v:parsed.qtd+' '+(sk.um||'UN')});
@@ -2984,8 +2986,8 @@ function mostrarUltimoBipe(sk,parsed){
       '<div style="font-size:13px;font-weight:700;color:var(--cacau)">'+SEC.t(String(c.v))+'</div></div>';
   }).join('');
   var html=
-    '<div id="bipe-ultimo" style="background:#EBF5EB;border:2px solid #5BA85B;border-radius:10px;padding:12px 14px;margin-top:12px">'+
-      '<div style="font-size:11px;font-weight:700;color:#1A4A1A;text-transform:uppercase;margin-bottom:8px">✅ Registrado'+badgeSaldo+'</div>'+
+    '<div id="bipe-ultimo" style="background:'+(vencido?'#FFFBEB':'#EBF5EB')+';border:2px solid '+(vencido?'#F0B429':'#5BA85B')+';border-radius:10px;padding:12px 14px;margin-top:12px">'+
+      '<div style="font-size:11px;font-weight:700;color:'+(vencido?'#92400E':'#1A4A1A')+';text-transform:uppercase;margin-bottom:8px">✅ Registrado'+badgeSaldo+badgeVencido+'</div>'+
       '<div style="font-size:12px;color:var(--g600);margin-bottom:8px"><strong>'+SEC.t(sk.sku)+'</strong> — '+SEC.t(sk.desc||'')+'</div>'+
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">'+camposHtml+'</div>'+
     '</div>';
@@ -3133,12 +3135,13 @@ function renderModalPosicao(){
     html+='<th style="padding:6px 8px;text-align:right;font-size:10px">Qtd</th>';
     html+='</tr></thead><tbody>';
     linhas.forEach(function(l){
-      html+='<tr style="border-top:1px solid var(--g100)">'+
+      var venc=isVencido(l.val);
+      html+='<tr style="border-top:1px solid var(--g100);'+(venc?'background:#FFFBEB':'')+'">'+
         '<td style="padding:6px 8px;font-family:monospace">'+SEC.t(l.sku)+'</td>'+
         '<td style="padding:6px 8px">'+SEC.t(l.desc)+'</td>'+
         '<td style="padding:6px 8px;font-family:monospace">'+SEC.t(l.lote||'-')+'</td>'+
         '<td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:11px">'+SEC.t(l.fab||'-')+'</td>'+
-        '<td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:11px">'+SEC.t(l.val||'-')+'</td>'+
+        '<td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:11px;'+(venc?'color:#92400E;font-weight:700':'')+'">'+SEC.t(l.val||'-')+(venc?' ⚠️':'')+'</td>'+
         '<td style="padding:6px 8px;text-align:right;font-weight:700">'+l.qtd+' '+(l.um||'')+'</td>'+
         '</tr>';
     });
@@ -5979,18 +5982,32 @@ function complementarComSaldo(parsed){
 }
 
 // Valida um par fabricação/validade. Retorna string de erro ou '' se ok.
+// NOTA: item vencido (validade já passou) NÃO bloqueia o registro — durante o inventário
+// físico, itens vencidos também precisam ser contados (pra saber quanto baixar depois).
+// Só bloqueia formato inválido ou uma ordem logicamente impossível (validade antes da fabricação).
 function validarDatas(fabStr,valStr){
   var d=parseDataParaData(valStr);
   var f=parseDataParaData(fabStr);
   if(valStr && !d) return 'Validade em formato inválido ("'+valStr+'"). Use DD/MM/AA.';
   if(fabStr && !f) return 'Fabricação em formato inválido ("'+fabStr+'"). Use DD/MM/AA.';
   if(d && f && d < f) return 'A validade ('+valStr+') está antes da fabricação ('+fabStr+').';
-  if(d){
-    var hoje=new Date();
-    hoje.setHours(0,0,0,0);
-    if(d < hoje) return 'Este item está VENCIDO (validade '+valStr+', hoje '+hoje.toLocaleDateString('pt-BR')+').';
-  }
   return '';
+}
+
+// Verifica se um item está vencido (validade já passou) — não bloqueia, só sinaliza.
+function isVencido(valStr){
+  var d=parseDataParaData(valStr);
+  if(!d)return false;
+  var hoje=new Date();hoje.setHours(0,0,0,0);
+  return d<hoje;
+}
+// Quantos dias vencido (>=0). Retorna 0 se não estiver vencido ou data inválida.
+function diasVencido(valStr){
+  var d=parseDataParaData(valStr);
+  if(!d)return 0;
+  var hoje=new Date();hoje.setHours(0,0,0,0);
+  var diff=Math.round((hoje-d)/86400000);
+  return diff>0?diff:0;
 }
 
 // Converte string DD/MM/AA ou DD/MM/AAAA para objeto Date (ou null)
@@ -6264,6 +6281,9 @@ async function reiniciarInventarioLimpo(){
   try{if(typeof cpPerfil==='function')window.cpPerfil=cpPerfil;}catch(e){}
   try{if(typeof dCtOps==='function')window.dCtOps=dCtOps;}catch(e){}
   try{if(typeof dCtDvg==='function')window.dCtDvg=dCtDvg;}catch(e){}
+  try{if(typeof dCtVencidos==='function')window.dCtVencidos=dCtVencidos;}catch(e){}
+  try{if(typeof isVencido==='function')window.isVencido=isVencido;}catch(e){}
+  try{if(typeof diasVencido==='function')window.diasVencido=diasVencido;}catch(e){}
   try{if(typeof renderDvgIG==='function')window.renderDvgIG=renderDvgIG;}catch(e){}
   try{if(typeof filtroDvgIG==='function')window.filtroDvgIG=filtroDvgIG;}catch(e){}
   try{if(typeof dCtRank==='function')window.dCtRank=dCtRank;}catch(e){}
@@ -6676,6 +6696,7 @@ function hCentral(){
   <button class="acomp-chip" id="ct-btn-seg2" onclick="centralTab('seg2')">🔄 Avaliar nova contagem</button>
   <button class="acomp-chip" id="ct-btn-lanc" onclick="centralTab('lanc')">✅ Lançamento</button>
   <button class="acomp-chip" id="ct-btn-dvg" onclick="centralTab('dvg')">⚠️ Divergências</button>
+  <button class="acomp-chip" id="ct-btn-venc" onclick="centralTab('venc')">🕒 Vencidos</button>
   <button class="acomp-chip" id="ct-btn-audit" onclick="centralTab('audit')">🔒 Log</button>
   <button class="acomp-chip" id="ct-btn-tv" onclick="centralTab('tv')" style="background:linear-gradient(135deg,var(--ouro),#FFD060);color:var(--cacau);border:none;font-weight:800">📺 Telão</button>
 </div>
@@ -6683,6 +6704,7 @@ function hCentral(){
 <div id="ct-valid" style="display:none"></div>
 <div id="ct-seg2" style="display:none"></div>
 <div id="ct-dvg" style="display:none"></div>
+<div id="ct-venc" style="display:none"></div>
 <div id="ct-audit" style="display:none"></div>
 <div id="ct-lanc" style="display:none"></div>
 <div id="ct-tv" style="display:none"></div>
@@ -6703,7 +6725,7 @@ function hCentral(){
 let _ctTab='ops',_ctInterval=null,_ctCountdown=30;
 function centralTab(tab){
   _ctTab=tab;
-  ['ops','valid','seg2','dvg','audit','tv','lanc'].forEach(function(t){
+  ['ops','valid','seg2','dvg','venc','audit','tv','lanc'].forEach(function(t){
     var el=document.getElementById('ct-'+t);var btn=document.getElementById('ct-btn-'+t);
     if(el)el.style.display=t===tab?'':'none';
     if(btn){
@@ -6718,6 +6740,7 @@ function dCentral(){
   else if(_ctTab==='valid')dCtValid();
   else if(_ctTab==='seg2')dCtSeg2();
   else if(_ctTab==='dvg')dCtDvg();
+  else if(_ctTab==='venc')dCtVencidos();
   else if(_ctTab==='audit')dCtAudit();
   else if(_ctTab==='tv')dCtTV();
   else if(_ctTab==='lanc')dCtLanc();
@@ -7021,6 +7044,55 @@ function dCtDvg(){
   });
   html+='</tbody></table></div><div style="font-size:11px;color:var(--g400);margin-top:8px;text-align:right">'+filtradas.length+' de '+divs.length+'</div>';
   el.innerHTML=html;dvgChkChange();
+}
+// ── ABA: VENCIDOS ─────────────────────────────────────────
+// Lista itens contados cuja validade já passou. Não bloqueia a contagem — só sinaliza,
+// pra o gestor saber o que precisa de baixa/tratativa depois de encerrar o inventário.
+function dCtVencidos(){
+  var el=document.getElementById('ct-venc');if(!el)return;
+  var contagens=A.invGeral.contagens||[];
+  var mapa={};
+  contagens.forEach(function(c){
+    if(!c.val||!isVencido(c.val))return;
+    var k=c.sku+'|'+(c.lote||'')+'|'+(c.end||'')+'|'+c.val;
+    if(!mapa[k])mapa[k]={sku:c.sku,desc:c.desc||'',lote:c.lote||'',end:c.end||'',val:c.val,um:c.um||'UN',qtd:0,ops:new Set()};
+    mapa[k].qtd+=c.qtd;mapa[k].ops.add(c.op);
+  });
+  var itens=Object.values(mapa).map(function(i){
+    var skuD=(A.dados.skus||[]).find(function(s){return s.sku===i.sku;})||{};
+    return Object.assign(i,{dias:diasVencido(i.val),valorImpacto:i.qtd*(skuD.valor||0)});
+  });
+  itens.sort(function(a,b){return b.dias-a.dias;});
+  if(!itens.length){el.innerHTML='<div class="es"><div class="ei">✅</div><div class="et">Nenhum item vencido contado até agora</div></div>';return;}
+  var qFilt=(document.getElementById('venc-q')?.value||'').toLowerCase();
+  var filtrados=qFilt?itens.filter(function(i){return i.sku.toLowerCase().includes(qFilt)||i.desc.toLowerCase().includes(qFilt)||(i.lote||'').toLowerCase().includes(qFilt)||(i.end||'').toLowerCase().includes(qFilt);}):itens;
+  var totQtd=itens.reduce(function(a,i){return a+i.qtd;},0);
+  var totImpacto=itens.reduce(function(a,i){return a+i.valorImpacto;},0);
+  var html='<div class="kg" style="margin-bottom:12px">'+
+    '<div class="kc"><div class="kv" style="color:var(--am)">'+itens.length+'</div><div class="kl">Itens vencidos</div></div>'+
+    '<div class="kc"><div class="kv" style="color:var(--am)">'+totQtd.toLocaleString('pt-BR',{maximumFractionDigits:3})+'</div><div class="kl">Quantidade total</div></div>'+
+    '<div class="kc"><div class="kv" style="color:var(--rd)">R$ '+fv(totImpacto)+'</div><div class="kl">Valor a tratar</div></div>'+
+    '</div>'+
+    '<div style="margin-bottom:12px"><input class="fi" id="venc-q" placeholder="🔍 SKU, descrição, lote ou endereço..." style="width:100%" value="'+qFilt+'" oninput="dCtVencidos()"></div>'+
+    '<div class="ger-ig-table-wrap"><table class="ger-ig-table"><thead><tr>'+
+    '<th>SKU</th><th>Descrição</th><th>Lote</th><th>Endereço</th><th style="text-align:right">Qtd</th><th>Validade</th><th style="text-align:center">Dias vencido</th><th style="text-align:right">Impacto R$</th><th>Operador(es)</th>'+
+    '</tr></thead><tbody>';
+  filtrados.forEach(function(i){
+    var corDias=i.dias>30?'var(--rd)':i.dias>7?'var(--am)':'#92400E';
+    html+='<tr style="background:#FFFBEB">'+
+      '<td style="font-family:monospace;font-size:11px;font-weight:700">'+SEC.t(i.sku)+'</td>'+
+      '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+SEC.t(i.desc)+'</td>'+
+      '<td style="font-size:11px;color:var(--g500)">'+SEC.t(i.lote||'—')+'</td>'+
+      '<td style="font-family:monospace;font-size:11px;font-weight:700">'+SEC.t(i.end||'—')+'</td>'+
+      '<td style="text-align:right;font-weight:700">'+i.qtd.toLocaleString('pt-BR',{maximumFractionDigits:3})+' '+SEC.t(i.um)+'</td>'+
+      '<td style="font-family:monospace;font-size:11px">'+SEC.t(i.val)+'</td>'+
+      '<td style="text-align:center;font-weight:800;color:'+corDias+'">'+i.dias+'d</td>'+
+      '<td style="text-align:right;font-weight:700;color:var(--rd)">R$ '+fv(i.valorImpacto)+'</td>'+
+      '<td style="font-size:11px">'+SEC.t([...i.ops].join(', '))+'</td>'+
+      '</tr>';
+  });
+  html+='</tbody></table></div><div style="font-size:11px;color:var(--g400);margin-top:8px;text-align:right">'+filtrados.length+' de '+itens.length+'</div>';
+  el.innerHTML=html;
 }
 function dCtAudit(){
   var el=document.getElementById('ct-audit');if(!el)return;
