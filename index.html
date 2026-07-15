@@ -5576,6 +5576,21 @@ async function sbSyncTorre(){
 // ABA GERENCIAR — controle de acesso (Supabase)
 // ══════════════════════════════════════════
 var __perfisCache=[];
+var __operadoresIGCache=null; // cache separado pra tela "Criar Inventário Geral" — todos os usuários ativos, online ou não
+var __operadoresIGCarregando=false;
+async function sbCarregarOperadoresIG(forcar){
+  if(__operadoresIGCarregando)return;
+  if(__operadoresIGCache&&!forcar)return;
+  if(!SB){__operadoresIGCache=[];return;}
+  __operadoresIGCarregando=true;
+  try{
+    var r=await SB.from('perfis').select('id,nome,perfil,ativo').eq('ativo',true).order('nome',{ascending:true});
+    __operadoresIGCache=(r.error||!r.data)?[]:r.data;
+  }catch(e){ __operadoresIGCache=[]; }
+  __operadoresIGCarregando=false;
+  // Re-renderiza se ainda estivermos na tela de criar inventário (sem sessão ativa)
+  if(window.__tabAtual==='inv_geral'&&!A.invGeral.sessao&&typeof dInvGeral==='function'){ dInvGeral(); }
+}
 
 function hGerNovo(){
   return '<div class="stit">👥 Gerenciar Acessos</div>'+
@@ -5864,7 +5879,9 @@ function parseCodigoBipado(codBruto){
     datas.push({txt:m[0],ini:m.index,fim:m.index+m[0].length,tipo:'sep'});
   }
   // Rodada 2: datas sem separadores (DDMMAA — 6 dígitos consecutivos)
-  // Só considera se não estiver dentro de uma data com separador já encontrada
+  // Só entra em ação se a rodada 1 não achou NENHUMA data com separador — evita
+  // confundir dígitos de um lote alfanumérico (ex: "261251B") com uma data falsa-positiva.
+  if(datas.length===0){
   var re2=/\d{6}/g;
   while((m=re2.exec(resto))){
     var dentroDeOutra=datas.some(function(d){return m.index>=d.ini&&m.index<d.fim;});
@@ -5876,6 +5893,7 @@ function parseCodigoBipado(codBruto){
         datas.push({txt:s,ini:m.index,fim:m.index+6,tipo:'seq'});
       }
     }
+  }
   }
   datas.sort(function(a,b){return a.ini-b.ini;});
   
@@ -6281,6 +6299,7 @@ async function reiniciarInventarioLimpo(){
   try{if(typeof sbBuscarTorre==='function')window['sbBuscarTorre']=sbBuscarTorre;}catch(e){}
   try{if(typeof sbExcluirTorre==='function')window['sbExcluirTorre']=sbExcluirTorre;}catch(e){}
   try{if(typeof sbSyncTorre==='function')window['sbSyncTorre']=sbSyncTorre;}catch(e){}
+  try{if(typeof sbCarregarOperadoresIG==='function')window['sbCarregarOperadoresIG']=sbCarregarOperadoresIG;}catch(e){}
   try{if(typeof hGerNovo==='function')window['hGerNovo']=hGerNovo;}catch(e){}
   try{if(typeof dGerNovo==='function')window['dGerNovo']=dGerNovo;}catch(e){}
   try{if(typeof renderGerUsuarios==='function')window['renderGerUsuarios']=renderGerUsuarios;}catch(e){}
@@ -6521,15 +6540,20 @@ function dInvGeral(){
   if(!s){
     if(!isAdmin){el.innerHTML='<div class="es"><div class="ei">🏭</div><div class="et">Nenhum inventário ativo</div><p class="tsm tmu">Aguarde o gestor criar o inventário.</p></div>';return;}
     var deps=[...new Set(A.dados.zwm.map(function(z){return z.dep;}).filter(Boolean))];
-    var ops=A.usuarios.filter(function(u){return u.ativo&&(u.perfil==='operador'||u.perfil==='analista');});
+    if(__operadoresIGCache===null){
+      sbCarregarOperadoresIG();
+      el.innerHTML='<div class="card"><div class="ctit" style="margin-bottom:12px">Criar inventário geral</div><div class="tsm tmu" style="padding:12px 0">⏳ Carregando operadores...</div></div>';
+      return;
+    }
+    var ops=__operadoresIGCache.filter(function(u){return u.perfil==='operador'||u.perfil==='analista'||u.perfil==='gestor';});
     el.innerHTML='<div class="card"><div class="ctit" style="margin-bottom:12px">Criar inventário geral</div>'+
       '<div class="alert ai" style="margin-bottom:12px">Fluxo: clique na posição → bipe → feche. Saldo SAP nunca exibido.</div>'+
       (A.dados.zwm.length?'':'<div class="alert ar">⚠️ Importe os dados ZWM primeiro.</div>')+
       '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'+
       '<select class="fi" id="ig-dep" style="flex:1;min-width:130px"><option value="">Todos os depósitos</option>'+deps.map(function(d){return'<option>'+d+'</option>';}).join('')+'</select>'+
       '<input class="fi" id="ig-nome" placeholder="Nome (ex: Geral Jun/2025)" style="flex:2;min-width:200px">'+
-      '</div><div class="fg"><label class="fl">Operadores</label><div style="display:flex;flex-wrap:wrap;gap:6px">'+
-      ops.map(function(u){return'<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border:1.5px solid var(--g200);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600"><input type="checkbox" value="'+u.nome+'" id="igop-'+u.id+'" style="accent-color:var(--ouro)"> '+u.nome+'</label>';}).join('')+
+      '</div><div class="fg"><label class="fl">Operadores <button onclick="sbCarregarOperadoresIG(true)" style="background:none;border:none;color:var(--g400);cursor:pointer;font-size:11px;text-decoration:underline">↻ atualizar lista</button></label><div style="display:flex;flex-wrap:wrap;gap:6px">'+
+      (ops.length?ops.map(function(u){return'<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border:1.5px solid var(--g200);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600"><input type="checkbox" value="'+SEC.t(u.nome)+'" id="igop-'+u.id+'" style="accent-color:var(--ouro)"> '+SEC.t(u.nome)+'</label>';}).join(''):'<div class="tsm tmu">Nenhum operador/analista/gestor ativo cadastrado.</div>')+
       '</div></div><button class="btn bp" onclick="criarSessaoIG()"'+(A.dados.zwm.length?'':' disabled')+'>🏭 Criar inventário</button></div>';
     return;
   }
