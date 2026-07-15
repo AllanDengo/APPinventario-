@@ -109,6 +109,12 @@ textarea.fi{resize:vertical}
 .kl{font-size:11px;color:var(--g400);margin-top:3px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
 .ks{font-size:11px;color:var(--g400)}
 .tw{overflow-x:auto;border-radius:var(--rs);border:1px solid var(--g200)}
+.ger-ig-table-wrap{overflow-x:auto;border-radius:var(--rs);border:1px solid var(--g200);-webkit-overflow-scrolling:touch}
+.ger-ig-table{width:100%;border-collapse:collapse;font-size:12px;min-width:640px}
+.ger-ig-table th{padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--g500);text-align:left;border-bottom:1px solid var(--g200);white-space:nowrap;background:var(--g50)}
+.ger-ig-table td{padding:8px 10px;border-bottom:1px solid var(--g100);vertical-align:middle}
+.ger-ig-table tr:last-child td{border-bottom:none}
+.ger-ig-table tbody tr:hover{background:var(--g50)}
 table{width:100%;border-collapse:collapse;font-size:12px}
 thead{background:var(--creme)}
 th{padding:9px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--g500);text-align:left;border-bottom:1px solid var(--g200);white-space:nowrap}
@@ -2844,9 +2850,26 @@ function togglePausa(){A.pausado=!A.pausado;var btn=document.getElementById('btn
 function shareResumo(modo){var txt='Inventario Geral\n'+new Date().toLocaleDateString('pt-BR');if(modo==='whatsapp')window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');else if(modo==='email')window.location.href='mailto:?body='+encodeURIComponent(txt);else navigator.clipboard&&navigator.clipboard.writeText(txt).then(function(){alert('Copiado!');});}
 
 
+function posicionarModalPosicao(){
+  var box=document.getElementById('m-posicao-box');
+  if(!box)return;
+  var vw=window.innerWidth,vh=window.innerHeight;
+  var mobile=vw<640;
+  box.setAttribute('data-mobile',mobile?'1':'0');
+  if(mobile){
+    box.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;width:100%;max-width:100%;height:100%;max-height:100%;margin:0;border-radius:0;overflow-y:auto;background:#fff;box-shadow:none';
+  } else {
+    var bw=Math.min(760,vw*0.94);
+    var bh=Math.min(vh*0.92,vh-24);
+    var left=(vw-bw)/2;
+    var top=Math.max(10,(vh-bh)/2);
+    box.style.cssText='position:fixed;left:'+left+'px;top:'+top+'px;width:'+bw+'px;max-width:'+bw+'px;max-height:'+bh+'px;margin:0;border-radius:12px;overflow-y:auto;background:#fff;box-shadow:0 12px 60px rgba(0,0,0,.3)';
+  }
+}
 function abrirPosicao(pos,evt){
   if(!A.invGeral.sessao){alert('Nenhum inventario ativo.');return;}
   if(opEstaPausado()){alert('Você está em pausa. Clique em Retomar para continuar contando.');return;}
+  if(_correcaoAlvo&&_correcaoAlvo.pos!==pos)_correcaoAlvo=null;
   _posAtual={pos:pos,dep:''};
   A.invGeral.endAtivo={pos:pos,dep:''};
   addLog('Posicao aberta',pos);
@@ -2854,19 +2877,15 @@ function abrirPosicao(pos,evt){
   dInvGeral();
   renderModalPosicao();
   var modal=document.getElementById('m-posicao');
-  var box=document.getElementById('m-posicao-box');
   if(modal){modal.style.display='flex';modal.classList.add('open');}
-  if(box){
-    var vw=window.innerWidth,vh=window.innerHeight;
-    var bw=Math.min(720,vw*0.95);
-    var bh=Math.min(600,vh*0.85);
-    var left=(vw-bw)/2;
-    var top=(vh-bh)/2;
-    box.style.cssText='position:fixed;left:'+left+'px;top:'+top+'px;width:'+bw+'px;max-width:'+bw+'px;max-height:'+bh+'px;margin:0;border-radius:12px;overflow-y:auto;background:#fff;box-shadow:0 12px 60px rgba(0,0,0,.3)';
-  }
+  posicionarModalPosicao();
   // Verifica no Supabase se o endereço já foi contado por outro operador
   if(typeof avisarSeEnderecoContado==='function'){ avisarSeEnderecoContado(pos); }
 }
+window.addEventListener('resize',function(){
+  var modal=document.getElementById('m-posicao');
+  if(modal&&modal.classList.contains('open'))posicionarModalPosicao();
+});
 
 
 function adicionarTodasPosSku(sku){
@@ -2914,6 +2933,11 @@ function igBip(){
   var pos=_posAtual?_posAtual.pos:'';if(!pos){alert('Nenhuma posição aberta.');return;}
   inp.value='';
   limparErroBipe(true);
+  // Modo correção ativo pra esta posição — desvia pro fluxo de correção
+  if(_correcaoAlvo&&_correcaoAlvo.pos===pos){
+    processarBipeCorrecao(cod);
+    return;
+  }
   // 1) SKU puro digitado à mão (sem código de barras real) — único caso que ainda
   //    precisa de confirmação manual, porque não há nenhum dado de lote/data/qtd pra extrair.
   if(/^\d{7}$/.test(cod)){
@@ -2950,8 +2974,63 @@ function igBip(){
 }
 
 // Erro de leitura — trava até o operador limpar, pra não deixar passar etiqueta errada/incompleta
+// Inicia o modo correção pra uma linha da tabela "Itens contados" — só quem contou pode.
+function iniciarCorrecao(pos,l){
+  if(!A.sessao||!l.ops||!l.ops.has(A.sessao.nome)){
+    alert('Só quem contou este item pode corrigi-lo.');
+    return;
+  }
+  _correcaoAlvo={pos:pos,sku:l.sku,desc:l.desc,lote:l.lote,fab:l.fab,val:l.val,um:l.um,qtdAntiga:l.qtd,lids:(l.lids||[]).slice(),opsAntigos:[...l.ops]};
+  renderModalPosicao();
+}
+function cancelarCorrecao(){
+  _correcaoAlvo=null;
+  renderModalPosicao();
+}
+// Processa um bipe feito durante o modo correção — só aceita se for do mesmo SKU do alvo.
+function processarBipeCorrecao(cod){
+  var alvo=_correcaoAlvo;
+  if(!alvo){return;}
+  var parsed;
+  if(/^\d{7}$/.test(cod)){
+    parsed={sku:cod,lote:'',fab:'',val:'',qtd:0,ok:true,raw:cod};
+  } else {
+    parsed=parseCodigoBipado(cod);
+    if(!parsed.ok){ mostrarErroBipe(parsed.msg||'Código não reconhecido',cod); return; }
+    complementarComSaldo(parsed);
+  }
+  if(parsed.sku!==alvo.sku){
+    mostrarErroBipe('Esse bipe é do SKU '+parsed.sku+', mas a correção em andamento é do SKU '+alvo.sku+'. Cancele a correção se quiser registrar um item diferente.',cod);
+    return;
+  }
+  var sk=A.dados.skus.find(function(s){return s.sku===parsed.sku;});
+  if(!sk){ mostrarErroBipe('SKU '+parsed.sku+' não encontrado na Lista de Produtos',cod); return; }
+  if(!parsed.qtd||parsed.qtd<=0){ mostrarErroBipe('Quantidade não identificada no bipe',cod); return; }
+  var erroData=(parsed.fab||parsed.val)?validarDatas(parsed.fab,parsed.val):'';
+  if(erroData){ mostrarErroBipe(erroData,cod); return; }
+  confirmarCorrecao(sk,parsed);
+}
+// Substitui o(s) registro(s) antigo(s) daquela linha por um novo, gerado a partir do bipe de correção.
+function confirmarCorrecao(sk,parsed){
+  var alvo=_correcaoAlvo;if(!alvo)return;
+  var pos=alvo.pos;
+  var lista=A.invGeral.contagens||[];
+  var removidos=[];
+  for(var i=lista.length-1;i>=0;i--){
+    if(alvo.lids.indexOf(lista[i]._lid)!==-1){
+      removidos.push(lista[i]);
+      lista.splice(i,1);
+    }
+  }
+  removidos.forEach(function(r){ removerContagemDoSupabase(r); });
+  _correcaoAlvo=null; // sai do modo correção antes de registrar, pra já voltar à tela normal
+  igRegistrar(sk.sku,sk.desc,sk.um||'UN',parsed.lote,parsed.qtd,pos,_posAtual?.dep||'',parsed.fab,parsed.val);
+  addLog('Contagem corrigida',sk.sku+' · '+pos+' · '+alvo.qtdAntiga+' '+(alvo.um||'')+' → '+parsed.qtd+' '+(sk.um||'')+' (lote '+(alvo.lote||'—')+' → '+(parsed.lote||'—')+') · corrigido por '+(A.sessao?A.sessao.nome:'—')+' · contado originalmente por: '+alvo.opsAntigos.join(', '));
+  mostrarUltimoBipe(sk,parsed,true,alvo);
+}
+
 function mostrarErroBipe(msg,raw){
-  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
+  var container=document.getElementById('bipe-wrapper');
   if(!container)return;
   var old=document.getElementById('bipe-ultimo');if(old)old.remove();
   var oldErr=document.getElementById('bipe-erro');if(oldErr)oldErr.remove();
@@ -2972,8 +3051,8 @@ function limparErroBipe(silencioso){
 
 // Feedback do último item bipado com sucesso — somente leitura, substituído a cada novo bipe.
 // A tabela "Itens contados" (abaixo) continua somando normalmente, sem depender deste aviso.
-function mostrarUltimoBipe(sk,parsed){
-  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
+function mostrarUltimoBipe(sk,parsed,ehCorrecao,infoCorrecao){
+  var container=document.getElementById('bipe-wrapper');
   if(!container)return;
   var old=document.getElementById('bipe-ultimo');if(old)old.remove();
   var badgeSaldo=parsed.saldoEncontrado?'<span style="background:#EBF5EB;color:#1A4A1A;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;margin-left:6px">✓ SALDO</span>':'';
@@ -2989,19 +3068,27 @@ function mostrarUltimoBipe(sk,parsed){
       '<div style="font-size:13px;font-weight:700;color:var(--cacau)">'+SEC.t(String(c.v))+'</div></div>';
   }).join('');
   var horaAgora=new Date().toLocaleTimeString('pt-BR');
+  var corBg=ehCorrecao?'#EFF6FF':(vencido?'#FFFBEB':'#EBF5EB');
+  var corBorda=ehCorrecao?'#2563EB':(vencido?'#F0B429':'#5BA85B');
+  var corTexto=ehCorrecao?'#1E40AF':(vencido?'#92400E':'#1A4A1A');
+  var icone=ehCorrecao?'✏️':(vencido?'⚠️':'✅');
+  var rotulo=ehCorrecao?'Corrigido':'Registrado';
+  var infoCorrecaoHtml=(ehCorrecao&&infoCorrecao)?'<div style="font-size:11px;color:'+corTexto+';margin-bottom:8px;background:rgba(37,99,235,.08);border-radius:6px;padding:6px 8px">Valor anterior: <strong>'+infoCorrecao.qtdAntiga+' '+SEC.t(sk.um||'')+'</strong> → novo: <strong>'+parsed.qtd+' '+SEC.t(sk.um||'')+'</strong></div>':'';
   var html=
-    '<div id="bipe-ultimo" style="background:'+(vencido?'#FFFBEB':'#EBF5EB')+';border:2px solid '+(vencido?'#F0B429':'#5BA85B')+';border-radius:10px;padding:12px 14px;margin-top:12px;animation:'+(vencido?'bipePulseVenc':'bipePulseOk')+' .5s ease-out">'+
+    '<div id="bipe-ultimo" style="background:'+corBg+';border:2px solid '+corBorda+';border-radius:10px;padding:12px 14px;margin-top:12px;animation:'+(ehCorrecao||vencido?'bipePulseVenc':'bipePulseOk')+' .5s ease-out">'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
-        '<span style="font-size:18px;display:inline-block;animation:bipeCheckPop .4s ease-out">'+(vencido?'⚠️':'✅')+'</span>'+
-        '<div style="font-size:11px;font-weight:700;color:'+(vencido?'#92400E':'#1A4A1A')+';text-transform:uppercase">Registrado'+badgeSaldo+badgeVencido+'</div>'+
+        '<span style="font-size:18px;display:inline-block;animation:bipeCheckPop .4s ease-out">'+icone+'</span>'+
+        '<div style="font-size:11px;font-weight:700;color:'+corTexto+';text-transform:uppercase">'+rotulo+badgeSaldo+badgeVencido+'</div>'+
         '<span style="font-size:10px;color:var(--g500);margin-left:auto;font-family:monospace">🕐 '+horaAgora+'</span>'+
       '</div>'+
       '<div style="font-size:12px;color:var(--g600);margin-bottom:8px"><strong>'+SEC.t(sk.sku)+'</strong> — '+SEC.t(sk.desc||'')+'</div>'+
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">'+camposHtml+'</div>'+
+      infoCorrecaoHtml+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin-bottom:8px">'+camposHtml+'</div>'+
+      (ehCorrecao?'':'<button onclick="desfazerUltimoBipe()" style="background:none;border:1px solid '+corBorda+';color:'+corTexto+';border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer">↩️ Desfazer último bipe</button>')+
     '</div>';
   container.insertAdjacentHTML('afterend',html);
   var inp=document.getElementById('ig-bip');
-  if(inp){inp.style.borderColor='#5BA85B';setTimeout(function(){if(inp)inp.style.borderColor='var(--ouro)';},600);}
+  if(inp){inp.style.borderColor=corBorda;setTimeout(function(){if(inp)inp.style.borderColor=ehCorrecao?'#2563EB':'var(--ouro)';},600);}
 }
 
 // SKU puro digitado à mão (sem código de barras real) — não há dado nenhum pra extrair,
@@ -3012,7 +3099,7 @@ function abrirFormSkuManual(sku){
     mostrarErroBipe('SKU '+sku+' não encontrado na Lista de Produtos',sku);
     return;
   }
-  var container=document.getElementById('ig-bip')?.closest('div[style*="FFF8EE"]');
+  var container=document.getElementById('bipe-wrapper');
   if(!container)return;
   var old=document.getElementById('bipe-ultimo');if(old)old.remove();
   var oldErr=document.getElementById('bipe-erro');if(oldErr)oldErr.remove();
@@ -3072,13 +3159,56 @@ window['limparTudoSistema']=function limparTudoSistema(){
 }
 
 
+var _ultimoRegistroIG=null; // referência ao último registro feito (pra permitir desfazer sem ambiguidade)
+var _correcaoAlvo=null; // {key,sku,lote,fab,val,end,qtdAntiga,lids,ops} quando em modo "corrigir contagem"
 function igRegistrar(sku,desc,um,lote,qtd,pos,dep,fab,val){
   if(!A.invGeral.contagens)A.invGeral.contagens=[];
-  var c={sku:sku,desc:desc,um:um,lote:lote||'',fab:fab||'',val:val||'',end:pos,dep:dep,qtd:qtd,op:A.sessao?A.sessao.nome:'',ts:Date.now()};
+  var lid='c'+Date.now()+Math.random().toString(36).slice(2,7);
+  var c={_lid:lid,sku:sku,desc:desc,um:um,lote:lote||'',fab:fab||'',val:val||'',end:pos,dep:dep,qtd:qtd,op:A.sessao?A.sessao.nome:'',ts:Date.now()};
   A.invGeral.contagens.push(c);
+  _ultimoRegistroIG=c;
   addLog('Reg. IG',sku+' · '+pos+' · '+qtd);save();renderModalPosicao();
   // Bloco 2+Fila: grava no Supabase; se falhar, entra na fila de reenvio automático
   if(typeof sbGravarContagem==='function'){ sbGravarContagem(c); }
+  return c;
+}
+
+// Desfaz o último bipe registrado — sempre o mais recente, sem precisar escolher nada.
+function desfazerUltimoBipe(){
+  if(!_ultimoRegistroIG){return;}
+  var lista=A.invGeral.contagens||[];
+  var idx=lista.indexOf(_ultimoRegistroIG);
+  if(idx===-1){
+    alert('Este bipe já não está mais disponível pra desfazer (a lista mudou desde então).');
+    _ultimoRegistroIG=null;
+    return;
+  }
+  var reg=lista[idx];
+  lista.splice(idx,1);
+  removerContagemDoSupabase(reg);
+  addLog('Bipe desfeito',reg.sku+' · '+(reg.end||'—')+' · '+reg.qtd+' '+(reg.um||''));
+  _ultimoRegistroIG=null;
+  save();
+  renderModalPosicao();
+  var old=document.getElementById('bipe-ultimo');if(old)old.remove();
+  var container=document.getElementById('bipe-wrapper');
+  if(container){
+    var html='<div id="bipe-desfeito" style="background:#F1F1F1;border:2px solid #B0B0B0;border-radius:10px;padding:10px 14px;margin-top:12px;font-size:12px;color:#555;font-weight:600">↩️ Último bipe desfeito ('+SEC.t(reg.sku)+' · '+reg.qtd+' '+(reg.um||'')+')</div>';
+    container.insertAdjacentHTML('afterend',html);
+    setTimeout(function(){var el=document.getElementById('bipe-desfeito');if(el)el.remove();},2500);
+  }
+  document.getElementById('ig-bip')?.focus();
+}
+
+// Remove uma contagem do Supabase (por id, se já sincronizada) ou da fila de reenvio (se ainda pendente)
+function removerContagemDoSupabase(reg){
+  if(reg.sbRowId&&SB){
+    SB.from('contagens').delete().eq('id',reg.sbRowId).then(function(){}).catch(function(e){console.warn('erro ao remover contagem do Supabase',e);});
+  } else if(reg._lid){
+    var fila=filaPendGet();
+    var restante=fila.filter(function(item){return item._lid!==reg._lid;});
+    if(restante.length!==fila.length)filaPendSet(restante);
+  }
 }
 
 
@@ -3092,8 +3222,10 @@ function renderModalPosicao(){
   var mapa={};
   contPos.forEach(function(c){
     var k=c.sku+'|'+(c.lote||'')+'|'+(c.fab||'')+'|'+(c.val||'');
-    if(!mapa[k])mapa[k]={sku:c.sku,desc:c.desc||'',lote:c.lote||'',fab:c.fab||'',val:c.val||'',um:c.um||'UN',qtd:0,op:c.op};
+    if(!mapa[k])mapa[k]={sku:c.sku,desc:c.desc||'',lote:c.lote||'',fab:c.fab||'',val:c.val||'',um:c.um||'UN',qtd:0,ops:new Set(),lids:[]};
     mapa[k].qtd+=c.qtd;
+    mapa[k].ops.add(c.op);
+    if(c._lid)mapa[k].lids.push(c._lid);
   });
   var linhas=Object.values(mapa);
   var jaVazia=A.invGeral._vazias&&A.invGeral._vazias.has(pos);
@@ -3108,13 +3240,25 @@ function renderModalPosicao(){
   html+='<button id="btn-pos-vazia" '+(jaVazia?'disabled':'')+' style="background:#F3EEFF;color:#5B2D8E;border:1.5px solid #C4A0F0;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:'+(jaVazia?'not-allowed':'pointer')+';opacity:'+(jaVazia?'.5':'1')+'">⬜ '+(jaVazia?'Vazia':'Posição vazia')+'</button>';
   html+='<button id="btn-pos-fechar" style="background:#A8D5A2;color:#1A4A1A;border:1.5px solid #7BC47F;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer">✅ Fechar posição</button>';
   html+='</div></div></div>';
+  var emCorrecao=_correcaoAlvo&&_correcaoAlvo.pos===pos;
   html+='<div style="padding:16px">';
-  html+='<div style="background:#FFF8EE;border:2px solid var(--ouro);border-radius:10px;padding:12px;margin-bottom:14px">';
-  html+='<div style="font-size:11px;font-weight:700;color:var(--ouro);text-transform:uppercase;margin-bottom:8px">📡 Bipe o produto</div>';
-  html+='<div style="display:flex;gap:8px">';
-  html+='<input type="text" id="ig-bip" placeholder="Bipe ou digite o SKU..." style="flex:1;border:2px solid var(--ouro);border-radius:10px;padding:10px 14px;font-size:15px;font-family:var(--fn);background:#fff">';
-  html+='<button id="btn-ig-bip" style="background:var(--ouro);color:var(--cacau);border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:900;cursor:pointer">✅</button>';
-  html+='</div></div>';
+  if(emCorrecao){
+    html+='<div id="bipe-wrapper" style="background:#EFF6FF;border:2px solid #2563EB;border-radius:10px;padding:12px;margin-bottom:14px;animation:bipePulseVenc .5s ease-out">';
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">✏️</span><div style="font-size:12px;font-weight:800;color:#1E40AF;text-transform:uppercase">Modo correção ativo</div></div>';
+    html+='<div style="font-size:12px;color:#1E3A8A;margin-bottom:10px">Corrigindo <strong>'+SEC.t(_correcaoAlvo.sku)+'</strong> — '+SEC.t(_correcaoAlvo.desc||'')+' · valor atual: <strong>'+_correcaoAlvo.qtdAntiga+' '+SEC.t(_correcaoAlvo.um||'')+'</strong>. Bipe o item novamente (precisa ser o mesmo SKU) pra confirmar o novo valor.</div>';
+    html+='<div style="display:flex;gap:8px">';
+    html+='<input type="text" id="ig-bip" placeholder="Bipe o SKU '+SEC.t(_correcaoAlvo.sku)+' de novo..." style="flex:1;border:2px solid #2563EB;border-radius:10px;padding:10px 14px;font-size:15px;font-family:var(--fn);background:#fff">';
+    html+='<button id="btn-ig-bip" style="background:#2563EB;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:900;cursor:pointer">✅</button>';
+    html+='<button onclick="cancelarCorrecao()" style="background:#fff;color:#2563EB;border:1.5px solid #2563EB;border-radius:10px;padding:10px 14px;font-size:12px;font-weight:700;cursor:pointer">Cancelar</button>';
+    html+='</div></div>';
+  } else {
+    html+='<div id="bipe-wrapper" style="background:#FFF8EE;border:2px solid var(--ouro);border-radius:10px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-size:11px;font-weight:700;color:var(--ouro);text-transform:uppercase;margin-bottom:8px">📡 Bipe o produto</div>';
+    html+='<div style="display:flex;gap:8px">';
+    html+='<input type="text" id="ig-bip" placeholder="Bipe ou digite o SKU..." style="flex:1;border:2px solid var(--ouro);border-radius:10px;padding:10px 14px;font-size:15px;font-family:var(--fn);background:#fff">';
+    html+='<button id="btn-ig-bip" style="background:var(--ouro);color:var(--cacau);border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:900;cursor:pointer">✅</button>';
+    html+='</div></div>';
+  }
   html+='<details id="det-manual" style="border:1.5px solid var(--g200);border-radius:10px;padding:12px;margin-bottom:14px;background:#FAFAFA">';
   html+='<summary style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">✏️ Contagem manual <span style="font-size:10px;color:var(--g400);font-weight:400;text-transform:none;margin-left:auto">(clique para abrir)</span></summary>';
   html+='<div style="margin-top:10px">';
@@ -3132,7 +3276,7 @@ function renderModalPosicao(){
   html+='</details>';
   if(linhas.length){
     html+='<div style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;margin-bottom:8px">📦 Itens contados ('+linhas.length+')</div>';
-    html+='<div style="max-height:200px;overflow-y:auto;border:1px solid var(--g200);border-radius:8px">';
+    html+='<div style="border:1px solid var(--g200);border-radius:8px">';
     html+='<table style="width:100%;font-size:12px;border-collapse:collapse">';
     html+='<thead style="background:var(--g100);position:sticky;top:0"><tr>';
     html+='<th style="padding:6px 8px;text-align:left;font-size:10px">SKU</th>';
@@ -3141,9 +3285,12 @@ function renderModalPosicao(){
     html+='<th style="padding:6px 8px;text-align:center;font-size:10px">Fab.</th>';
     html+='<th style="padding:6px 8px;text-align:center;font-size:10px">Val.</th>';
     html+='<th style="padding:6px 8px;text-align:right;font-size:10px">Qtd</th>';
+    html+='<th style="padding:6px 8px;text-align:center;font-size:10px">Ação</th>';
     html+='</tr></thead><tbody>';
-    linhas.forEach(function(l){
+    linhas.forEach(function(l,li){
       var venc=isVencido(l.val);
+      var podeCorrigir=A.sessao&&l.ops.has(A.sessao.nome);
+      var btnId='btn-corrigir-'+li;
       html+='<tr style="border-top:1px solid var(--g100);'+(venc?'background:#FFFBEB':'')+'">'+
         '<td style="padding:6px 8px;font-family:monospace">'+SEC.t(l.sku)+'</td>'+
         '<td style="padding:6px 8px">'+SEC.t(l.desc)+'</td>'+
@@ -3151,6 +3298,7 @@ function renderModalPosicao(){
         '<td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:11px">'+SEC.t(l.fab||'-')+'</td>'+
         '<td style="padding:6px 8px;text-align:center;font-family:monospace;font-size:11px;'+(venc?'color:#92400E;font-weight:700':'')+'">'+SEC.t(l.val||'-')+(venc?' ⚠️':'')+'</td>'+
         '<td style="padding:6px 8px;text-align:right;font-weight:700">'+l.qtd+' '+(l.um||'')+'</td>'+
+        '<td style="padding:6px 8px;text-align:center">'+(podeCorrigir?'<button id="'+btnId+'" style="background:#EFF6FF;color:#2563EB;border:1px solid #2563EB;border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer">✏️ Corrigir</button>':'<span style="font-size:10px;color:var(--g300)">—</span>')+'</td>'+
         '</tr>';
     });
     html+='</tbody></table></div>';
@@ -3167,6 +3315,10 @@ function renderModalPosicao(){
     var ib=document.getElementById('ig-bip');if(ib){ib.onkeydown=function(e){if(e.key==='Enter')igBip();};ib.focus();}
     var ms=document.getElementById('man-sku-ig');if(ms)ms.oninput=function(){igManualSku();};
     var mq=document.getElementById('man-qtd-ig');if(mq)mq.onkeydown=function(e){if(e.key==='Enter')igManualAdd();};
+    linhas.forEach(function(l,li){
+      var btn=document.getElementById('btn-corrigir-'+li);
+      if(btn)btn.onclick=function(){iniciarCorrecao(pos,l);};
+    });
   },50);
 }
 
@@ -3179,6 +3331,7 @@ function fecharPosicao(){
   addLog('Posição fechada',pos+' · '+cnt+' registros');
   A.invGeral.endAtivo=null;
   _posAtual=null;
+  if(_correcaoAlvo&&_correcaoAlvo.pos===pos)_correcaoAlvo=null;
   save();
   var modal=document.getElementById('m-posicao');
   if(modal){modal.style.display='none';modal.classList.remove('open');}
@@ -5239,20 +5392,21 @@ async function sbGravarContagem(c){
   };
   if(!sbId){
     // Sessão ainda sem id do banco: guarda pendente para reenviar quando tiver
-    filaPendAdd(payload);
+    filaPendAdd(payload,c._lid);
     return false;
   }
   try{
-    var r=await SB.from('contagens').insert(payload);
+    var r=await SB.from('contagens').insert(payload).select('id').single();
     if(r.error){
       console.error('sbGravarContagem erro:', r.error.message);
-      filaPendAdd(payload);
+      filaPendAdd(payload,c._lid);
       return false;
     }
+    if(r.data&&r.data.id)c.sbRowId=r.data.id;
     return true;
   }catch(e){
     console.error('sbGravarContagem exceção:', e);
-    filaPendAdd(payload);
+    filaPendAdd(payload,c._lid);
     return false;
   }
 }
@@ -5271,9 +5425,9 @@ function filaPendSet(arr){
   try{ localStorage.setItem('sb_fila_pendente', JSON.stringify(arr)); }catch(e){}
   atualizarBadgePendentes();
 }
-function filaPendAdd(payload){
+function filaPendAdd(payload,lid){
   var arr=filaPendGet();
-  arr.push({tempId:'p'+Date.now()+Math.random().toString(36).slice(2,6), payload:payload, tentativas:0, ts:Date.now()});
+  arr.push({tempId:'p'+Date.now()+Math.random().toString(36).slice(2,6), payload:payload, _lid:lid||null, tentativas:0, ts:Date.now()});
   filaPendSet(arr);
   console.warn('📋 Contagem na fila de reenvio. Pendentes:', arr.length);
 }
@@ -5287,13 +5441,17 @@ async function filaPendFlush(){
   for(var i=0;i<arr.length;i++){
     var item=arr[i];
     try{
-      var r=await SB.from('contagens').insert(item.payload);
+      var r=await SB.from('contagens').insert(item.payload).select('id').single();
       if(r.error){
         item.tentativas++;
         aindaPend.push(item);
         console.warn('Reenvio falhou ('+item.tentativas+'x):', r.error.message);
       } else {
         console.log('✅ Pendente reenviado:', item.payload.sku, item.payload.endereco);
+        if(item._lid&&r.data&&r.data.id&&A.invGeral.contagens){
+          var local=A.invGeral.contagens.find(function(c){return c._lid===item._lid;});
+          if(local)local.sbRowId=r.data.id;
+        }
       }
     }catch(e){
       item.tentativas++;
@@ -6342,6 +6500,12 @@ async function reiniciarInventarioLimpo(){
   try{if(typeof formatarData==='function')window['formatarData']=formatarData;}catch(e){}
   try{if(typeof complementarComSaldo==='function')window['complementarComSaldo']=complementarComSaldo;}catch(e){}
   try{if(typeof mostrarErroBipe==='function')window['mostrarErroBipe']=mostrarErroBipe;}catch(e){}
+  try{if(typeof desfazerUltimoBipe==='function')window['desfazerUltimoBipe']=desfazerUltimoBipe;}catch(e){}
+  try{if(typeof removerContagemDoSupabase==='function')window['removerContagemDoSupabase']=removerContagemDoSupabase;}catch(e){}
+  try{if(typeof iniciarCorrecao==='function')window['iniciarCorrecao']=iniciarCorrecao;}catch(e){}
+  try{if(typeof cancelarCorrecao==='function')window['cancelarCorrecao']=cancelarCorrecao;}catch(e){}
+  try{if(typeof processarBipeCorrecao==='function')window['processarBipeCorrecao']=processarBipeCorrecao;}catch(e){}
+  try{if(typeof confirmarCorrecao==='function')window['confirmarCorrecao']=confirmarCorrecao;}catch(e){}
   try{if(typeof limparErroBipe==='function')window['limparErroBipe']=limparErroBipe;}catch(e){}
   try{if(typeof mostrarUltimoBipe==='function')window['mostrarUltimoBipe']=mostrarUltimoBipe;}catch(e){}
   try{if(typeof abrirFormSkuManual==='function')window['abrirFormSkuManual']=abrirFormSkuManual;}catch(e){}
@@ -6782,12 +6946,12 @@ function dCtOps(){
   html+='<div style="background:linear-gradient(135deg,#1A0A00,#2E1A08);border:2px solid var(--ouro);border-radius:var(--rl);padding:18px;margin-bottom:16px">'+
     '<div style="font-size:10px;font-weight:700;color:var(--ouro3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">🏭 '+SEC.t(sessao.nome||'')+'</div>'+
     '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px">'+
-    '<div><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+pct+'%</div><div style="font-size:10px;color:#A89880">Conclusão</div></div>'+
-    '<div><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+endsFeitos.length+'/'+endsTot.length+'</div><div style="font-size:10px;color:#A89880">Posições</div></div>'+
-    '<div><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+(new Set(contagens.map(function(c){return c.sku;}))).size+'</div><div style="font-size:10px;color:#A89880">SKUs</div></div>'+
-    '<div><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+contagens.length+'</div><div style="font-size:10px;color:#A89880">Registros</div></div>'+
-    (etaMin?'<div><div style="font-size:26px;font-weight:900;color:#7DD87D">'+(etaMin>=60?Math.floor(etaMin/60)+'h'+(etaMin%60?String(etaMin%60).padStart(2,'0')+'m':''):etaMin+'min')+'</div><div style="font-size:10px;color:#A89880">ETA</div></div>':'')+
-    '<div><div style="font-size:26px;font-weight:900;color:var(--ouro3)">'+ritmo+'/min</div><div style="font-size:10px;color:#A89880">Ritmo</div></div>'+
+    '<div style="min-width:76px"><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+pct+'%</div><div style="font-size:10px;color:#A89880">Conclusão</div></div>'+
+    '<div style="min-width:76px"><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+endsFeitos.length+'/'+endsTot.length+'</div><div style="font-size:10px;color:#A89880">Posições</div></div>'+
+    '<div style="min-width:76px"><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+(new Set(contagens.map(function(c){return c.sku;}))).size+'</div><div style="font-size:10px;color:#A89880">SKUs</div></div>'+
+    '<div style="min-width:76px"><div style="font-size:26px;font-weight:900;color:var(--ouro)">'+contagens.length+'</div><div style="font-size:10px;color:#A89880">Registros</div></div>'+
+    (etaMin?'<div style="min-width:76px"><div style="font-size:26px;font-weight:900;color:#7DD87D">'+(etaMin>=60?Math.floor(etaMin/60)+'h'+(etaMin%60?String(etaMin%60).padStart(2,'0')+'m':''):etaMin+'min')+'</div><div style="font-size:10px;color:#A89880">ETA</div></div>':'')+
+    '<div style="min-width:76px"><div style="font-size:26px;font-weight:900;color:var(--ouro3)">'+ritmo+'/min</div><div style="font-size:10px;color:#A89880">Ritmo</div></div>'+
     '</div><div style="background:rgba(255,255,255,.1);border-radius:20px;height:8px;overflow:hidden"><div style="height:100%;border-radius:20px;background:linear-gradient(90deg,var(--ouro),var(--ouro2));width:'+pct+'%"></div></div>'+
     '<div style="font-size:10px;color:#A89880;margin-top:6px">Iniciado: '+new Date(tsInicio).toLocaleString('pt-BR')+(minutos?' · '+minutos+' min':'')+'</div></div>';
   html+='<div class="card"><div class="ctit" style="margin-bottom:12px">👥 Operadores em sessão</div>';
@@ -7202,6 +7366,7 @@ load();
   function startDrag(e){
     var box=document.getElementById('m-posicao-box');
     if(!box)return;
+    if(box.getAttribute('data-mobile')==='1')return;
     var target=e.target;
     var hdr=target.closest&&target.closest('[data-drag-handle]');
     if(!hdr)return;
