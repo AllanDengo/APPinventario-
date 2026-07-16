@@ -1628,16 +1628,25 @@ async function dCContagem(){
       contadoPorSku[c.sku][n]=(contadoPorSku[c.sku][n]||0)+parseFloat(c.qtd||0);
     });
 
+    var rClass=await SB.from('ciclico_classificacao').select('sku,classe_combinada');
+    var classePorSku={}; (rClass.data||[]).forEach(function(c){classePorSku[c.sku]=c.classe_combinada;});
+    var PRIORIDADE_CLASSE={AA:1,AB:2,BA:2,AC:3,BB:3,CA:3,BC:4,CB:4,CC:5};
+
     A.ciclico._itensContagem=itens.map(function(a){
+      var enderecosBase=(a.enderecos_status&&a.enderecos_status.length)?a.enderecos_status:(endsPorSku[a.sku]||[]).map(function(e){return {nome:e,extra:false,contado:false,vazio:false,bipes:[]};});
+      var classeComb=classePorSku[a.sku]||'';
       return {
-        agendaId:a.id, sku:a.sku, status:a.status,
+        agendaId:a.id, sku:a.sku, status:a.status, origem:a.origem,
         desc:descPorSku[a.sku]||'',
-        enderecos:endsPorSku[a.sku]||[],
+        enderecos:enderecosBase,
+        classeCombinada:classeComb,
+        prioridade:a.origem==='manual'?0:(PRIORIDADE_CLASSE[classeComb]||9),
         saldoEsperado:saldoPorSku[a.sku]||0,
         c1:(contadoPorSku[a.sku]&&contadoPorSku[a.sku][1]!=null)?contadoPorSku[a.sku][1]:null,
         c2:(contadoPorSku[a.sku]&&contadoPorSku[a.sku][2]!=null)?contadoPorSku[a.sku][2]:null
       };
     });
+    A.ciclico._itensContagem.sort(function(a,b){return a.prioridade-b.prioridade;});
     renderContagemLista();
   }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
 }
@@ -1652,10 +1661,14 @@ function renderContagemLista(){
   var feitos=itens.filter(function(i){return i.status==='realizado';});
 
   function card(i,corBorda,label){
+    var totalEnd=i.enderecos.length;
+    var contadosEnd=i.enderecos.filter(function(e){return e.contado||e.vazio;}).length;
+    var pct=totalEnd?Math.round(contadosEnd/totalEnd*100):0;
     return '<div onclick="ciclicoAbrirBip(\''+i.sku+'\')" style="cursor:pointer;padding:12px;border:1.5px solid '+corBorda+';border-radius:10px;margin-bottom:8px;background:var(--branco)">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
-        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div>'+
-        (i.enderecos.length?'<div style="font-size:11px;color:var(--g400);margin-top:2px">📍 '+i.enderecos.join(', ')+'</div>':'<div style="font-size:11px;color:var(--am)">⚠️ sem endereço cadastrado</div>')+
+        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+' '+(i.origem==='manual'?'<span style="font-size:9px;background:var(--ouro);color:var(--cacau);padding:1px 6px;border-radius:4px;margin-left:4px">MANUAL</span>':(i.classeCombinada?'<span style="font-size:9px;background:var(--g100);color:var(--g500);padding:1px 6px;border-radius:4px;margin-left:4px">'+i.classeCombinada+'</span>':''))+'</div>'+
+        '<div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div>'+
+        (totalEnd?'<div style="font-size:11px;color:var(--g400);margin-top:2px">📍 '+contadosEnd+'/'+totalEnd+' endereços contados ('+pct+'%)</div>':'<div style="font-size:11px;color:var(--am)">⚠️ sem endereço cadastrado</div>')+
         '</div>'+
         '<div style="text-align:right;font-size:11px;color:var(--g500)">'+label+'</div>'+
       '</div></div>';
@@ -1681,39 +1694,120 @@ function renderContagemLista(){
 
 var __bipCicloAtual=null;
 
+async function ciclicoPersistirEnderecos(){
+  if(!__bipCicloAtual)return;
+  try{
+    await SB.from('ciclico_agenda').update({enderecos_status:__bipCicloAtual.item.enderecos}).eq('id',__bipCicloAtual.item.agendaId);
+  }catch(e){ console.error('Erro ao persistir endereços:',e); }
+}
+
 function ciclicoAbrirBip(sku){
   var item=(A.ciclico._itensContagem||[]).find(function(i){return i.sku===sku;});
   if(!item)return;
   if(item.status==='realizado'){ alert('Esse SKU já foi concluído hoje.'); return; }
-  __bipCicloAtual={sku:sku,item:item,bipes:[]};
+  if(!item.enderecos.length){
+    item.enderecos=[{nome:'Sem endereço cadastrado',extra:true,contado:false,vazio:false,bipes:[]}];
+  }
+  var idxAtivo=item.enderecos.findIndex(function(e){return !e.contado&&!e.vazio;});
+  if(idxAtivo<0)idxAtivo=0;
+  __bipCicloAtual={sku:sku,item:item,enderecoAtivoIdx:idxAtivo};
   var numeroContagem=(item.status==='aguardando_2a')?2:1;
   var tituloContagem=numeroContagem===2?'2ª contagem (divergiu na 1ª)':'1ª contagem';
 
   var html='<div id="modal-bip-ciclo" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px">'+
-    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
+    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'+
         '<div><div style="font-size:18px;font-weight:800;color:var(--cacau)">📋 '+sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(item.desc)+' · '+tituloContagem+'</div></div>'+
         '<button onclick="ciclicoFecharModalBip()" style="background:none;border:none;font-size:22px;color:var(--g400);cursor:pointer;line-height:1">×</button>'+
       '</div>'+
-      (item.enderecos.length?'<div style="font-size:12px;color:var(--g500);margin-bottom:12px">📍 Endereços: '+item.enderecos.join(', ')+'</div>':'')+
-      '<div class="fg"><label class="fl">Bipar código de barras</label><input class="fi" id="bip-ciclo-input" placeholder="Escaneie ou digite o código"></div>'+
-      '<button class="btn bs bsm" onclick="ciclicoAdicionarBipe()">➕ Adicionar</button>'+
-      '<div id="bip-ciclo-lista" style="margin:14px 0;display:flex;flex-direction:column;gap:6px"></div>'+
-      '<div style="display:flex;justify-content:space-between;font-weight:700;padding:10px 0;border-top:1px solid var(--g200)">'+
-        '<span>Total bipado</span><span id="bip-ciclo-total">0</span>'+
-      '</div>'+
-      '<button class="btn bp bfl" onclick="ciclicoFecharContagemSku()" style="margin-top:12px">✅ Fechar contagem deste SKU</button>'+
+      '<div id="ciclo-enderecos-wrap"></div>'+
+      '<button class="btn bs bsm" style="margin-top:8px" onclick="ciclicoAdicionarEnderecoExtra()">➕ Encontrei em outro endereço</button>'+
+      '<div style="border-top:1px solid var(--g200);margin:16px 0"></div>'+
+      '<div id="ciclo-bip-area"></div>'+
+      '<button class="btn bp bfl" onclick="ciclicoFecharContagemSku()" style="margin-top:16px">✅ Fechar contagem deste SKU</button>'+
     '</div></div>';
   var wrap=document.createElement('div'); wrap.innerHTML=html; document.body.appendChild(wrap.firstChild);
-  setTimeout(function(){
-    var inp=document.getElementById('bip-ciclo-input');
-    if(inp){ inp.focus(); inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();ciclicoAdicionarBipe();} }); }
-  },150);
+  renderModalBipCiclo();
 }
 
 function ciclicoFecharModalBip(){
   var m=document.getElementById('modal-bip-ciclo'); if(m)m.remove();
   __bipCicloAtual=null;
+}
+
+function renderModalBipCiclo(){
+  if(!__bipCicloAtual)return;
+  var item=__bipCicloAtual.item;
+  var contados=item.enderecos.filter(function(e){return e.contado||e.vazio;}).length;
+  var pct=item.enderecos.length?Math.round(contados/item.enderecos.length*100):0;
+
+  var wEnd=document.getElementById('ciclo-enderecos-wrap');
+  if(wEnd){
+    var html='<div style="font-size:12px;color:var(--g500);margin-bottom:8px">📍 Endereços — '+contados+'/'+item.enderecos.length+' contados ('+pct+'%)</div>'+
+      '<div style="height:6px;background:var(--g100);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:'+pct+'%;background:var(--gr)"></div></div>'+
+      '<div style="display:flex;flex-direction:column;gap:6px">';
+    item.enderecos.forEach(function(e,idx){
+      var ativo=idx===__bipCicloAtual.enderecoAtivoIdx;
+      var totalEnd=e.bipes.reduce(function(a,b){return a+parseFloat(b.qtd||0);},0);
+      var icone=e.vazio?'⭕':(e.contado?'✅':'⬜');
+      html+='<div onclick="ciclicoSelecionarEndereco('+idx+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid '+(ativo?'var(--ouro)':'var(--g200)')+';border-radius:8px;background:'+(ativo?'#FFF8E7':'var(--branco)')+'">'+
+        '<span>'+icone+'</span>'+
+        '<span style="flex:1;font-size:12px;font-weight:'+(ativo?'700':'500')+'">'+SEC.t(e.nome)+(e.extra?' <span style="font-size:9px;color:var(--am)">(novo)</span>':'')+'</span>'+
+        (e.contado?'<span style="font-size:11px;color:var(--g500)">'+totalEnd+'</span>':'')+
+      '</div>';
+    });
+    html+='</div>';
+    wEnd.innerHTML=html;
+  }
+
+  var wBip=document.getElementById('ciclo-bip-area');
+  if(wBip){
+    var endAtivo=item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
+    var html2='<div style="font-size:12px;font-weight:700;color:var(--cacau);margin-bottom:8px">Bipando em: '+SEC.t(endAtivo.nome)+'</div>'+
+      '<div class="fg"><label class="fl">Bipar código de barras</label><input class="fi" id="bip-ciclo-input" placeholder="Escaneie ou digite o código"></div>'+
+      '<div class="fr" style="gap:8px">'+
+        '<button class="btn bs bsm" onclick="ciclicoAdicionarBipe()">➕ Adicionar</button>'+
+        '<button class="btn bs bsm" style="color:var(--g500)" onclick="ciclicoMarcarEnderecoVazio()">⭕ Marcar como vazio</button>'+
+      '</div>'+
+      '<div id="bip-ciclo-lista" style="margin:14px 0;display:flex;flex-direction:column;gap:6px"></div>'+
+      '<div style="display:flex;justify-content:space-between;font-weight:700;padding:10px 0;border-top:1px solid var(--g200)">'+
+        '<span>Total bipado neste endereço</span><span id="bip-ciclo-total">0</span>'+
+      '</div>';
+    wBip.innerHTML=html2;
+    var inp=document.getElementById('bip-ciclo-input');
+    if(inp){ inp.focus(); inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();ciclicoAdicionarBipe();} }); }
+    renderBipCicloLista();
+  }
+}
+
+function ciclicoSelecionarEndereco(idx){
+  if(!__bipCicloAtual)return;
+  __bipCicloAtual.enderecoAtivoIdx=idx;
+  renderModalBipCiclo();
+}
+
+function ciclicoAdicionarEnderecoExtra(){
+  if(!__bipCicloAtual)return;
+  var nome=prompt('Qual o endereço onde você encontrou o material?');
+  if(!nome)return;
+  nome=SEC.t(nome.trim());
+  if(!nome)return;
+  __bipCicloAtual.item.enderecos.push({nome:nome,extra:true,contado:false,vazio:false,bipes:[]});
+  __bipCicloAtual.enderecoAtivoIdx=__bipCicloAtual.item.enderecos.length-1;
+  ciclicoPersistirEnderecos();
+  renderModalBipCiclo();
+}
+
+function ciclicoMarcarEnderecoVazio(){
+  if(!__bipCicloAtual)return;
+  var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
+  if(end.bipes.length){ if(!confirm('Esse endereço já tem itens bipados. Marcar como vazio mesmo assim (isso não apaga os bipes)?'))return; }
+  end.vazio=true;
+  ciclicoPersistirEnderecos();
+  // Avança pro próximo endereço pendente, se houver
+  var proximo=__bipCicloAtual.item.enderecos.findIndex(function(e){return !e.contado&&!e.vazio;});
+  if(proximo>=0)__bipCicloAtual.enderecoAtivoIdx=proximo;
+  renderModalBipCiclo();
 }
 
 function ciclicoAdicionarBipe(){
@@ -1727,17 +1821,21 @@ function ciclicoAdicionarBipe(){
   if(parsed.sku!==__bipCicloAtual.sku){
     if(!confirm('O código bipado é do SKU '+parsed.sku+', mas você está contando o SKU '+__bipCicloAtual.sku+'. Adicionar mesmo assim?'))return;
   }
-  __bipCicloAtual.bipes.push(parsed);
+  var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
+  end.bipes.push(parsed);
+  end.contado=true; end.vazio=false;
   if(input)input.value='';
-  renderBipCicloLista();
-  if(input)input.focus();
+  ciclicoPersistirEnderecos();
+  renderModalBipCiclo();
 }
 
 function renderBipCicloLista(){
+  if(!__bipCicloAtual)return;
   var el=document.getElementById('bip-ciclo-lista');
-  if(!el||!__bipCicloAtual)return;
+  if(!el)return;
+  var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
   var total=0;
-  el.innerHTML=__bipCicloAtual.bipes.map(function(b,idx){
+  el.innerHTML=end.bipes.map(function(b,idx){
     total+=parseFloat(b.qtd||0);
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;padding:6px 8px;background:var(--g50);border-radius:6px">'+
       '<span>Lote '+(b.lote||'—')+' · Val '+(b.val||'—')+'</span><span style="font-weight:700">'+b.qtd+'</span>'+
@@ -1749,26 +1847,34 @@ function renderBipCicloLista(){
 
 function ciclicoRemoverBipeTemp(idx){
   if(!__bipCicloAtual)return;
-  __bipCicloAtual.bipes.splice(idx,1);
-  renderBipCicloLista();
+  var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
+  end.bipes.splice(idx,1);
+  if(!end.bipes.length)end.contado=false;
+  ciclicoPersistirEnderecos();
+  renderModalBipCiclo();
 }
 
 async function ciclicoFecharContagemSku(){
   if(!__bipCicloAtual)return;
   var item=__bipCicloAtual.item;
-  var totalBipado=__bipCicloAtual.bipes.reduce(function(a,b){return a+parseFloat(b.qtd||0);},0);
+  var pendentesEnd=item.enderecos.filter(function(e){return !e.contado&&!e.vazio;});
+  if(pendentesEnd.length){
+    if(!confirm('Ainda tem '+pendentesEnd.length+' endereço(s) não conferido(s) ('+pendentesEnd.map(function(e){return e.nome;}).join(', ')+'). Fechar mesmo assim?'))return;
+  }
+  var todosBipes=[]; item.enderecos.forEach(function(e){ e.bipes.forEach(function(b){ todosBipes.push({b:b,endereco:e.nome}); }); });
+  var totalBipado=todosBipes.reduce(function(a,x){return a+parseFloat(x.b.qtd||0);},0);
   var numeroContagem=(item.status==='aguardando_2a')?2:1;
 
-  if(!__bipCicloAtual.bipes.length){
-    if(!confirm('Nenhum item bipado. Registrar contagem ZERO pra esse SKU?'))return;
+  if(!todosBipes.length){
+    if(!confirm('Nenhum item bipado em nenhum endereço. Registrar contagem ZERO pra esse SKU?'))return;
   }
 
   try{
-    var payload=(__bipCicloAtual.bipes.length?__bipCicloAtual.bipes:[{lote:'',fab:'',val:'',qtd:0}]).map(function(b){
+    var payload=(todosBipes.length?todosBipes:[{b:{lote:'',fab:'',val:'',qtd:0},endereco:(item.enderecos[0]&&item.enderecos[0].nome)||''}]).map(function(x){
       return {
         sessao_id:A.ciclico._sessaoHojeId, sku:item.sku, descricao:item.desc, um:'UN',
-        lote:b.lote||'', endereco:(item.enderecos[0]||''), deposito:'',
-        qtd:b.qtd||0, operador_id:A.sessao.id, operador_nome:A.sessao.nome||'',
+        lote:x.b.lote||'', endereco:x.endereco||'', deposito:'',
+        qtd:x.b.qtd||0, operador_id:A.sessao.id, operador_nome:A.sessao.nome||'',
         numero_contagem:numeroContagem
       };
     });
@@ -1785,7 +1891,7 @@ async function ciclicoFecharContagemSku(){
       novoStatus=(bateSaldo||bateC1)?'realizado':'divergente';
     }
 
-    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus}).eq('id',item.agendaId);
+    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus,enderecos_status:item.enderecos}).eq('id',item.agendaId);
     if(rUp.error){ alert('Contagem gravada, mas erro ao atualizar status da agenda: '+rUp.error.message); }
 
     addLog('Contagem cíclica registrada',item.sku+' · '+(numeroContagem===1?'1ª':'2ª')+' contagem · '+novoStatus);
@@ -1796,6 +1902,9 @@ async function ciclicoFecharContagemSku(){
 
 window['ciclicoAbrirBip']=ciclicoAbrirBip;
 window['ciclicoFecharModalBip']=ciclicoFecharModalBip;
+window['ciclicoSelecionarEndereco']=ciclicoSelecionarEndereco;
+window['ciclicoAdicionarEnderecoExtra']=ciclicoAdicionarEnderecoExtra;
+window['ciclicoMarcarEnderecoVazio']=ciclicoMarcarEnderecoVazio;
 window['ciclicoAdicionarBipe']=ciclicoAdicionarBipe;
 window['ciclicoRemoverBipeTemp']=ciclicoRemoverBipeTemp;
 window['ciclicoFecharContagemSku']=ciclicoFecharContagemSku;
