@@ -526,6 +526,7 @@ tbody tr:hover{background:var(--g50)}
       <div class="appav" id="bav">—</div>
       <span class="appname" id="bun">—</span>
     </div>
+    <button class="btnout" id="btn-trocar-modulo" onclick="mostrarHub()" style="display:none;margin-right:8px;background:var(--g100);color:var(--cacau)">🔄 Trocar módulo</button>
     <button class="btnout" onclick="sbLogout()">Sair</button>
   </div>
   <nav class="navb" id="nav"></nav>
@@ -994,6 +995,7 @@ function goTab(id){
 function mostrarHub(){
   A.moduloAtual=null;
   var t=document.getElementById('apptit-txt'); if(t)t.textContent='Inventário';
+  var btm=document.getElementById('btn-trocar-modulo'); if(btm)btm.style.display='none';
   document.querySelectorAll('.ntab').forEach(el=>el.classList.remove('active'));
   renderNav();
   var abas=(A.sessao&&A.sessao.abas)||[];
@@ -1021,6 +1023,7 @@ function hHub(temGeral,temCiclico){
 function entrarGeral(){
   A.moduloAtual='geral';
   var t=document.getElementById('apptit-txt'); if(t)t.textContent='Inventário Geral';
+  var btm=document.getElementById('btn-trocar-modulo'); if(btm)btm.style.display='inline-block';
   renderNav();
   var first=ABAS.find(a=>A.sessao.abas.includes(a.id));
   if(first)goTab(first.id);
@@ -1028,6 +1031,7 @@ function entrarGeral(){
 function entrarCiclico(){
   A.moduloAtual='ciclico';
   var t=document.getElementById('apptit-txt'); if(t)t.textContent='Inventário Cíclico';
+  var btm=document.getElementById('btn-trocar-modulo'); if(btm)btm.style.display='inline-block';
   renderNav();
   var first=ABAS_CICLICO.find(a=>A.sessao.abas.includes(a.id));
   if(first)goTab(first.id);
