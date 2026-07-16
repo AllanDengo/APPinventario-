@@ -730,7 +730,9 @@ let A={
     movDataImport:null,
     parametros:{janela_valor_meses:12,janela_movimentacao_meses:6,limite_recontagem_auto:10000},
     classificacao:[],
-    _agendaHoje:[]
+    _agendaHoje:[],
+    _sessaoHojeId:null,
+    _itensContagem:[]
   },
   dados:{produtos:[],saldo:[],zwm:[],mov:[],skus:[],saldoConfronto:[],parceiros:{}},
   movDataImport:null,
@@ -994,6 +996,7 @@ function goTab(id){
   else if(id==='central'){c.innerHTML=hCentral();dCentral();}
   else if(id==='c_classificacao'){c.innerHTML=hCClassificacao();dCClassificacao();}
   else if(id==='c_agenda'){c.innerHTML=hCAgenda();dCAgenda();}
+  else if(id==='c_contagem'){c.innerHTML=hCContagem();dCContagem();}
   else if(id.indexOf('c_')===0){c.innerHTML=hCicloPlaceholder(id);}
 }
 
@@ -1494,6 +1497,7 @@ function renderAgendaLista(){
     html+='<div class="fr" style="gap:8px;margin-bottom:10px">'+
       '<button class="btn bs bsm" onclick="ciclicoMarcarTodos(true)">☑️ Marcar todos</button>'+
       '<button class="btn bs bsm" onclick="ciclicoMarcarTodos(false)">⬜ Desmarcar todos</button>'+
+      '<button class="btn bp bsm" onclick="ciclicoConfirmarSelecionados()">✅ Confirmar selecionados</button>'+
     '</div>';
     html+='<div style="display:flex;flex-direction:column;gap:6px">';
     pendentes.forEach(function(a){
@@ -1562,6 +1566,239 @@ window['ciclicoConfirmarSelecionados']=ciclicoConfirmarSelecionados;
 window['ciclicoMarcarTodos']=ciclicoMarcarTodos;
 window['ciclicoReiniciarAgendaHoje']=ciclicoReiniciarAgendaHoje;
 window['ciclicoRemoverItemAgenda']=ciclicoRemoverItemAgenda;
+
+// ══════════════════════════════════════════
+// CÍCLICO — BLOCO 6: Contagem (reaproveita parseCodigoBipado e o
+// mecanismo de gravação em `contagens`; regra de 2ª contagem própria,
+// pois o fluxo aqui é por SKU e não por posição como no Geral).
+// ══════════════════════════════════════════
+
+async function ciclicoGarantirSessaoHoje(){
+  var hoje=new Date();
+  var nomeHoje='Cíclico '+hoje.toLocaleDateString('pt-BR');
+  try{
+    var rBusca=await SB.from('sessoes_inventario').select('id').eq('tipo','ciclico').eq('nome',nomeHoje).limit(1);
+    if(rBusca.error){ console.error('ciclicoGarantirSessaoHoje busca:',rBusca.error); return null; }
+    if(rBusca.data&&rBusca.data.length){ A.ciclico._sessaoHojeId=rBusca.data[0].id; return rBusca.data[0].id; }
+    var rCria=await SB.from('sessoes_inventario').insert({nome:nomeHoje,status:'ativa',criado_por:A.sessao.id,tipo:'ciclico'}).select('id').single();
+    if(rCria.error){ console.error('ciclicoGarantirSessaoHoje criar:',rCria.error); return null; }
+    A.ciclico._sessaoHojeId=rCria.data.id;
+    return rCria.data.id;
+  }catch(e){ console.error('ciclicoGarantirSessaoHoje exceção:',e); return null; }
+}
+
+function hCContagem(){
+  return '<div class="stit">Cíclico · Contagem</div>'+
+    '<div class="ssub">SKUs confirmados na Agenda de hoje. Clique num item pra bipar.</div>'+
+    '<div id="contagem-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
+}
+
+async function dCContagem(){
+  var el=document.getElementById('contagem-lista');
+  if(!el)return;
+  var sessaoId=await ciclicoGarantirSessaoHoje();
+  if(!sessaoId){ el.innerHTML='<div class="alert" style="color:var(--rd)">Não foi possível abrir a sessão de hoje.</div>'; return; }
+
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var hojeStr=hoje.toISOString().slice(0,10);
+
+  try{
+    var rAgenda=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr).in('status',['confirmado','aguardando_2a','divergente','realizado']);
+    if(rAgenda.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rAgenda.error.message+'</div>'; return; }
+    var itens=rAgenda.data||[];
+    if(!itens.length){ el.innerHTML='<div class="card" style="text-align:center;color:var(--g500)">Nenhum SKU confirmado pra contar hoje. Vá na aba Agenda do dia.</div>'; return; }
+
+    var saldoPorSku={};
+    A.dados.saldo.forEach(function(s){ saldoPorSku[s.sku]=(saldoPorSku[s.sku]||0)+(s.qtd||0); });
+    var descPorSku={}; A.dados.skus.forEach(function(s){ descPorSku[s.sku]=s.desc; });
+
+    var endsPorSku={};
+    A.dados.zwm.forEach(function(z){
+      if(!z.sku)return;
+      if(!endsPorSku[z.sku])endsPorSku[z.sku]=[];
+      var label=(z.pos||'')+(z.dep?' ('+z.dep+')':'');
+      if(z.pos && endsPorSku[z.sku].indexOf(label)===-1) endsPorSku[z.sku].push(label);
+    });
+
+    var rCont=await SB.from('contagens').select('sku,qtd,numero_contagem').eq('sessao_id',sessaoId);
+    var contadoPorSku={};
+    (rCont.data||[]).forEach(function(c){
+      if(!contadoPorSku[c.sku])contadoPorSku[c.sku]={1:0,2:0};
+      var n=c.numero_contagem||1;
+      contadoPorSku[c.sku][n]=(contadoPorSku[c.sku][n]||0)+parseFloat(c.qtd||0);
+    });
+
+    A.ciclico._itensContagem=itens.map(function(a){
+      return {
+        agendaId:a.id, sku:a.sku, status:a.status,
+        desc:descPorSku[a.sku]||'',
+        enderecos:endsPorSku[a.sku]||[],
+        saldoEsperado:saldoPorSku[a.sku]||0,
+        c1:(contadoPorSku[a.sku]&&contadoPorSku[a.sku][1]!=null)?contadoPorSku[a.sku][1]:null,
+        c2:(contadoPorSku[a.sku]&&contadoPorSku[a.sku][2]!=null)?contadoPorSku[a.sku][2]:null
+      };
+    });
+    renderContagemLista();
+  }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
+}
+
+function renderContagemLista(){
+  var el=document.getElementById('contagem-lista');
+  if(!el)return;
+  var itens=A.ciclico._itensContagem||[];
+  var pendentes=itens.filter(function(i){return i.status==='confirmado';});
+  var aguard2=itens.filter(function(i){return i.status==='aguardando_2a';});
+  var divergentes=itens.filter(function(i){return i.status==='divergente';});
+  var feitos=itens.filter(function(i){return i.status==='realizado';});
+
+  function card(i,corBorda,label){
+    return '<div onclick="ciclicoAbrirBip(\''+i.sku+'\')" style="cursor:pointer;padding:12px;border:1.5px solid '+corBorda+';border-radius:10px;margin-bottom:8px;background:var(--branco)">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
+        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div>'+
+        (i.enderecos.length?'<div style="font-size:11px;color:var(--g400);margin-top:2px">📍 '+i.enderecos.join(', ')+'</div>':'<div style="font-size:11px;color:var(--am)">⚠️ sem endereço cadastrado</div>')+
+        '</div>'+
+        '<div style="text-align:right;font-size:11px;color:var(--g500)">'+label+'</div>'+
+      '</div></div>';
+  }
+
+  var html='<div class="ctit" style="margin-bottom:8px">📋 Pendentes de contagem — '+pendentes.length+'</div>';
+  html+=pendentes.length?pendentes.map(function(i){return card(i,'var(--g200)','Saldo sistema: '+i.saldoEsperado);}).join(''):'<div style="color:var(--g500);font-size:12px;margin-bottom:16px">Nenhum.</div>';
+
+  if(aguard2.length){
+    html+='<div class="ctit" style="margin:20px 0 8px;color:var(--am)">🔄 Aguardando 2ª contagem — '+aguard2.length+'</div>';
+    html+=aguard2.map(function(i){return card(i,'var(--am)','1ª contagem: '+i.c1);}).join('');
+  }
+  if(divergentes.length){
+    html+='<div class="ctit" style="margin:20px 0 8px;color:var(--rd)">⚠️ Divergência confirmada (aguarda análise) — '+divergentes.length+'</div>';
+    html+=divergentes.map(function(i){return card(i,'var(--rd)','1ª: '+i.c1+' · 2ª: '+i.c2+' · sistema: '+i.saldoEsperado);}).join('');
+  }
+  if(feitos.length){
+    html+='<div class="ctit" style="margin:20px 0 8px;color:var(--gr)">✅ Concluídos hoje — '+feitos.length+'</div>';
+    html+='<div style="font-size:12px">'+feitos.map(function(i){return '<div style="padding:8px 0;color:var(--g500);border-top:1px solid var(--g100)">'+i.sku+' — '+SEC.t(i.desc)+'</div>';}).join('')+'</div>';
+  }
+  el.innerHTML=html;
+}
+
+var __bipCicloAtual=null;
+
+function ciclicoAbrirBip(sku){
+  var item=(A.ciclico._itensContagem||[]).find(function(i){return i.sku===sku;});
+  if(!item)return;
+  if(item.status==='realizado'){ alert('Esse SKU já foi concluído hoje.'); return; }
+  __bipCicloAtual={sku:sku,item:item,bipes:[]};
+  var numeroContagem=(item.status==='aguardando_2a')?2:1;
+  var tituloContagem=numeroContagem===2?'2ª contagem (divergiu na 1ª)':'1ª contagem';
+
+  var html='<div id="modal-bip-ciclo" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px">'+
+    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'+
+        '<div><div style="font-size:18px;font-weight:800;color:var(--cacau)">📋 '+sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(item.desc)+' · '+tituloContagem+'</div></div>'+
+        '<button onclick="ciclicoFecharModalBip()" style="background:none;border:none;font-size:22px;color:var(--g400);cursor:pointer;line-height:1">×</button>'+
+      '</div>'+
+      (item.enderecos.length?'<div style="font-size:12px;color:var(--g500);margin-bottom:12px">📍 Endereços: '+item.enderecos.join(', ')+'</div>':'')+
+      '<div class="fg"><label class="fl">Bipar código de barras</label><input class="fi" id="bip-ciclo-input" placeholder="Escaneie ou digite o código"></div>'+
+      '<button class="btn bs bsm" onclick="ciclicoAdicionarBipe()">➕ Adicionar</button>'+
+      '<div id="bip-ciclo-lista" style="margin:14px 0;display:flex;flex-direction:column;gap:6px"></div>'+
+      '<div style="display:flex;justify-content:space-between;font-weight:700;padding:10px 0;border-top:1px solid var(--g200)">'+
+        '<span>Total bipado</span><span id="bip-ciclo-total">0</span>'+
+      '</div>'+
+      '<button class="btn bp bfl" onclick="ciclicoFecharContagemSku()" style="margin-top:12px">✅ Fechar contagem deste SKU</button>'+
+    '</div></div>';
+  var wrap=document.createElement('div'); wrap.innerHTML=html; document.body.appendChild(wrap.firstChild);
+  setTimeout(function(){
+    var inp=document.getElementById('bip-ciclo-input');
+    if(inp){ inp.focus(); inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();ciclicoAdicionarBipe();} }); }
+  },150);
+}
+
+function ciclicoFecharModalBip(){
+  var m=document.getElementById('modal-bip-ciclo'); if(m)m.remove();
+  __bipCicloAtual=null;
+}
+
+function ciclicoAdicionarBipe(){
+  if(!__bipCicloAtual)return;
+  var input=document.getElementById('bip-ciclo-input');
+  var cod=(input&&input.value||'').trim();
+  if(!cod)return;
+  var parsed=parseCodigoBipado(cod);
+  if(!parsed.ok){ alert('Código não reconhecido: '+(parsed.msg||'SKU não identificado')+'.'); return; }
+  if(parsed.qtdInvalida){ alert('Não consegui identificar a quantidade nesse código. Confira o código bipado.'); return; }
+  if(parsed.sku!==__bipCicloAtual.sku){
+    if(!confirm('O código bipado é do SKU '+parsed.sku+', mas você está contando o SKU '+__bipCicloAtual.sku+'. Adicionar mesmo assim?'))return;
+  }
+  __bipCicloAtual.bipes.push(parsed);
+  if(input)input.value='';
+  renderBipCicloLista();
+  if(input)input.focus();
+}
+
+function renderBipCicloLista(){
+  var el=document.getElementById('bip-ciclo-lista');
+  if(!el||!__bipCicloAtual)return;
+  var total=0;
+  el.innerHTML=__bipCicloAtual.bipes.map(function(b,idx){
+    total+=parseFloat(b.qtd||0);
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;padding:6px 8px;background:var(--g50);border-radius:6px">'+
+      '<span>Lote '+(b.lote||'—')+' · Val '+(b.val||'—')+'</span><span style="font-weight:700">'+b.qtd+'</span>'+
+      '<button onclick="ciclicoRemoverBipeTemp('+idx+')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px">✕</button>'+
+    '</div>';
+  }).join('');
+  var tEl=document.getElementById('bip-ciclo-total'); if(tEl)tEl.textContent=total;
+}
+
+function ciclicoRemoverBipeTemp(idx){
+  if(!__bipCicloAtual)return;
+  __bipCicloAtual.bipes.splice(idx,1);
+  renderBipCicloLista();
+}
+
+async function ciclicoFecharContagemSku(){
+  if(!__bipCicloAtual)return;
+  var item=__bipCicloAtual.item;
+  var totalBipado=__bipCicloAtual.bipes.reduce(function(a,b){return a+parseFloat(b.qtd||0);},0);
+  var numeroContagem=(item.status==='aguardando_2a')?2:1;
+
+  if(!__bipCicloAtual.bipes.length){
+    if(!confirm('Nenhum item bipado. Registrar contagem ZERO pra esse SKU?'))return;
+  }
+
+  try{
+    var payload=(__bipCicloAtual.bipes.length?__bipCicloAtual.bipes:[{lote:'',fab:'',val:'',qtd:0}]).map(function(b){
+      return {
+        sessao_id:A.ciclico._sessaoHojeId, sku:item.sku, descricao:item.desc, um:'UN',
+        lote:b.lote||'', endereco:(item.enderecos[0]||''), deposito:'',
+        qtd:b.qtd||0, operador_id:A.sessao.id, operador_nome:A.sessao.nome||'',
+        numero_contagem:numeroContagem
+      };
+    });
+    var rIns=await SB.from('contagens').insert(payload);
+    if(rIns.error){ alert('Erro ao gravar contagem: '+rIns.error.message); return; }
+
+    var diverge=Math.abs(totalBipado-item.saldoEsperado)>0.001;
+    var novoStatus;
+    if(numeroContagem===1){
+      novoStatus=diverge?'aguardando_2a':'realizado';
+    } else {
+      var bateSaldo=Math.abs(totalBipado-item.saldoEsperado)<=0.001;
+      var bateC1=item.c1!=null&&Math.abs(totalBipado-item.c1)<=0.001;
+      novoStatus=(bateSaldo||bateC1)?'realizado':'divergente';
+    }
+
+    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus}).eq('id',item.agendaId);
+    if(rUp.error){ alert('Contagem gravada, mas erro ao atualizar status da agenda: '+rUp.error.message); }
+
+    addLog('Contagem cíclica registrada',item.sku+' · '+(numeroContagem===1?'1ª':'2ª')+' contagem · '+novoStatus);
+    ciclicoFecharModalBip();
+    dCContagem();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+
+window['ciclicoAbrirBip']=ciclicoAbrirBip;
+window['ciclicoFecharModalBip']=ciclicoFecharModalBip;
+window['ciclicoAdicionarBipe']=ciclicoAdicionarBipe;
+window['ciclicoRemoverBipeTemp']=ciclicoRemoverBipeTemp;
+window['ciclicoFecharContagemSku']=ciclicoFecharContagemSku;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
