@@ -1240,6 +1240,12 @@ async function calcularClassificacaoCiclica(){
   try{
     var rMov=await SB.from('movimentacao').select('sku,qtd_movimentada');
     if(rMov.error){alert('Erro ao buscar movimentação: '+rMov.error.message); if(btn){btn.disabled=false;btn.textContent='⚡ Calcular classificação';} return;}
+    if(!rMov.data||!rMov.data.length){
+      if(!confirm('⚠️ A base de Movimentação está vazia no Supabase.\n\nSem esse dado, todo SKU vai cair na classe C de Movimentação (menor prioridade), o que pode distorcer o resultado.\n\nImporte a Movimentação em "Importar Bases" antes de continuar. Calcular mesmo assim?')){
+        if(btn){btn.disabled=false;btn.textContent='⚡ Calcular classificação';}
+        return;
+      }
+    }
     var movAgr={};
     (rMov.data||[]).forEach(function(m){ movAgr[m.sku]=parseFloat(m.qtd_movimentada||0); });
 
@@ -1253,12 +1259,12 @@ async function calcularClassificacaoCiclica(){
     var tv=base.reduce(function(a,s){return a+s.valor;},0);
     base.sort(function(a,b){return b.valor-a.valor;});
     var cv=0;
-    base.forEach(function(s){ cv+=s.valor; var p=tv>0?(cv/tv)*100:0; s.classe_valor=p<=lA?'A':p<=lB?'B':'C'; });
+    base.forEach(function(s){ cv+=s.valor; var p=tv>0?(cv/tv)*100:0; s.classe_valor=(tv<=0||s.valor<=0)?'C':(p<=lA?'A':p<=lB?'B':'C'); });
 
     var tm=base.reduce(function(a,s){return a+s.mov;},0);
     var base2=base.slice().sort(function(a,b){return b.mov-a.mov;});
     var cm=0; var mClasse={};
-    base2.forEach(function(s){ cm+=s.mov; var p=tm>0?(cm/tm)*100:0; mClasse[s.sku]=p<=lA?'A':p<=lB?'B':'C'; });
+    base2.forEach(function(s){ cm+=s.mov; var p=tm>0?(cm/tm)*100:0; mClasse[s.sku]=(tm<=0||s.mov<=0)?'C':(p<=lA?'A':p<=lB?'B':'C'); });
 
     var resultado=base.map(function(s){
       var cv2=s.classe_valor, cm2=mClasse[s.sku]||'C';
