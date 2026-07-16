@@ -732,7 +732,8 @@ let A={
     classificacao:[],
     _agendaHoje:[],
     _sessaoHojeId:null,
-    _itensContagem:[]
+    _itensContagem:[],
+    _divergenciasHoje:[]
   },
   dados:{produtos:[],saldo:[],zwm:[],mov:[],skus:[],saldoConfronto:[],parceiros:{}},
   movDataImport:null,
@@ -997,6 +998,7 @@ function goTab(id){
   else if(id==='c_classificacao'){c.innerHTML=hCClassificacao();dCClassificacao();}
   else if(id==='c_agenda'){c.innerHTML=hCAgenda();dCAgenda();}
   else if(id==='c_contagem'){c.innerHTML=hCContagem();dCContagem();}
+  else if(id==='c_divergencias'){c.innerHTML=hCDivergencias();dCDivergencias();}
   else if(id.indexOf('c_')===0){c.innerHTML=hCicloPlaceholder(id);}
 }
 
@@ -1823,6 +1825,15 @@ function ciclicoAbrirPosicao(idx){
 function ciclicoFecharPosicao(){
   var m=document.getElementById('modal-posicao-ciclo'); if(m)m.remove();
   renderListaEnderecosModal();
+  if(__bipCicloAtual){
+    var item=__bipCicloAtual.item;
+    var pendentesEnd=item.enderecos.filter(function(e){return !e.contado&&!e.vazio;});
+    if(!pendentesEnd.length&&item.enderecos.length){
+      if(confirm('✅ Todos os endereços foram contados! Fechar a contagem deste SKU agora?')){
+        ciclicoFecharContagemSku();
+      }
+    }
+  }
 }
 
 function ciclicoFecharPosicaoConcluir(){
@@ -1971,6 +1982,134 @@ window['ciclicoMarcarEnderecoVazio']=ciclicoMarcarEnderecoVazio;
 window['ciclicoAdicionarBipe']=ciclicoAdicionarBipe;
 window['ciclicoRemoverBipeTemp']=ciclicoRemoverBipeTemp;
 window['ciclicoFecharContagemSku']=ciclicoFecharContagemSku;
+
+// ══════════════════════════════════════════
+// CÍCLICO — BLOCO 7: Divergências (aprovação/decisão + histórico)
+// ══════════════════════════════════════════
+
+function hCDivergencias(){
+  return '<div class="stit">Cíclico · Divergências</div>'+
+    '<div class="ssub">SKUs onde a 1ª e a 2ª contagem não bateram com o saldo do sistema. Precisa de decisão.</div>'+
+    '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
+    '<div class="ctit" style="margin:24px 0 8px">📋 Histórico de decisões</div>'+
+    '<div id="divergencias-historico"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
+}
+
+async function dCDivergencias(){
+  var podeDecidir=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
+  var el=document.getElementById('divergencias-lista');
+  var elH=document.getElementById('divergencias-historico');
+  if(!el)return;
+
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var hojeStr=hoje.toISOString().slice(0,10);
+
+  try{
+    var rAgenda=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr).eq('status','divergente');
+    if(rAgenda.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rAgenda.error.message+'</div>'; return; }
+    var itens=rAgenda.data||[];
+
+    var custoPorSku={}; A.dados.produtos.forEach(function(p){custoPorSku[p.sku]=p.custo||0;});
+    var descPorSku={}; A.dados.skus.forEach(function(s){descPorSku[s.sku]=s.desc;});
+    var saldoPorSku={}; A.dados.saldo.forEach(function(s){ saldoPorSku[s.sku]=(saldoPorSku[s.sku]||0)+(s.qtd||0); });
+
+    var rCont=await SB.from('contagens').select('sku,qtd,numero_contagem').in('sku',itens.map(function(i){return i.sku;}));
+    var contadoPorSku={};
+    (rCont.data||[]).forEach(function(c){
+      if(!contadoPorSku[c.sku])contadoPorSku[c.sku]={};
+      var n=c.numero_contagem||1;
+      contadoPorSku[c.sku][n]=(contadoPorSku[c.sku][n]||0)+parseFloat(c.qtd||0);
+    });
+
+    A.ciclico._divergenciasHoje=itens.map(function(a){
+      var c1=(contadoPorSku[a.sku]&&contadoPorSku[a.sku][1])||0;
+      var c2=(contadoPorSku[a.sku]&&contadoPorSku[a.sku][2])||0;
+      var saldo=saldoPorSku[a.sku]||0;
+      var custo=custoPorSku[a.sku]||0;
+      var diferencaQtd=c2-saldo;
+      return {
+        agendaId:a.id, sku:a.sku, desc:descPorSku[a.sku]||'',
+        c1:c1,c2:c2,saldo:saldo,custo:custo,
+        diferencaQtd:diferencaQtd, diferencaValor:diferencaQtd*custo
+      };
+    });
+    renderDivergenciasLista(podeDecidir);
+
+    if(elH){
+      var rHist=await SB.from('ciclico_divergencias').select('*').order('decidido_em',{ascending:false}).limit(50);
+      if(rHist.error){ elH.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rHist.error.message+'</div>'; }
+      else{
+        var lbl={aprovado_sem_ajuste:'✅ Aprovado sem ajuste',terceira_contagem:'🔁 Pediu 3ª contagem',material_bloqueado:'🔒 Material bloqueado'};
+        var rows=(rHist.data||[]);
+        if(!rows.length){ elH.innerHTML='<div style="color:var(--g500);font-size:12px">Nenhuma decisão registrada ainda.</div>'; }
+        else{
+          elH.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+            '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Decisão</th><th>Diferença</th><th>Motivo</th><th>Quando</th></tr></thead><tbody>'+
+            rows.map(function(r){
+              return '<tr><td style="font-weight:700">'+r.sku+'</td><td>'+(lbl[r.decisao]||r.decisao)+'</td><td>'+(r.diferenca_qtd||0)+' (R$ '+fv(r.diferenca_valor||0)+')</td><td>'+SEC.t(r.observacao||'')+'</td><td>'+new Date(r.decidido_em).toLocaleString('pt-BR')+'</td></tr>';
+            }).join('')+
+            '</tbody></table></div>';
+        }
+      }
+    }
+  }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
+}
+
+function renderDivergenciasLista(podeDecidir){
+  var el=document.getElementById('divergencias-lista');
+  if(!el)return;
+  var itens=A.ciclico._divergenciasHoje||[];
+  if(!itens.length){ el.innerHTML='<div class="card" style="text-align:center;color:var(--g500)">Nenhuma divergência pendente de decisão. 🎉</div>'; return; }
+  el.innerHTML=itens.map(function(i){
+    var alertaLimite=Math.abs(i.diferencaValor)>=(A.ciclico.parametros.limite_recontagem_auto||10000);
+    return '<div class="card" style="border-color:var(--rd)">'+
+      '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">'+
+        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div></div>'+
+        (alertaLimite?'<span style="font-size:10px;background:#FBEAEA;color:var(--rd);padding:3px 8px;border-radius:6px;font-weight:700;align-self:center">⚠️ acima do limite pra recontagem automática</span>':'')+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;font-size:12px;margin-bottom:12px">'+
+        '<div><div style="color:var(--g400);font-size:10px;text-transform:uppercase">1ª contagem</div><div style="font-weight:700">'+i.c1+'</div></div>'+
+        '<div><div style="color:var(--g400);font-size:10px;text-transform:uppercase">2ª contagem</div><div style="font-weight:700">'+i.c2+'</div></div>'+
+        '<div><div style="color:var(--g400);font-size:10px;text-transform:uppercase">Saldo sistema</div><div style="font-weight:700">'+i.saldo+'</div></div>'+
+        '<div><div style="color:var(--g400);font-size:10px;text-transform:uppercase">Diferença</div><div style="font-weight:700;color:var(--rd)">'+i.diferencaQtd+' (R$ '+fv(i.diferencaValor)+')</div></div>'+
+      '</div>'+
+      (podeDecidir?
+        '<div class="fr" style="gap:8px;flex-wrap:wrap">'+
+          '<button class="btn bs bsm" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'aprovado_sem_ajuste\')">✅ Aprovar sem ajuste</button>'+
+          '<button class="btn bs bsm" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'terceira_contagem\')">🔁 Pedir 3ª contagem</button>'+
+          '<button class="btn bs bsm" style="color:var(--rd);border-color:var(--rd)" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'material_bloqueado\')">🔒 Material bloqueado</button>'+
+        '</div>'
+        :'<div style="font-size:11px;color:var(--g500)">🔒 Só analista, gestor ou admin pode decidir.</div>')+
+    '</div>';
+  }).join('');
+}
+
+async function ciclicoDecidirDivergencia(sku,decisao){
+  var item=(A.ciclico._divergenciasHoje||[]).find(function(i){return i.sku===sku;});
+  if(!item)return;
+  var lbl={aprovado_sem_ajuste:'Aprovar sem ajuste',terceira_contagem:'Pedir 3ª contagem',material_bloqueado:'Marcar material bloqueado'}[decisao];
+  var motivo=prompt('Motivo/justificativa pra "'+lbl+'" do SKU '+sku+' (obrigatório):');
+  if(!motivo||!motivo.trim()){ alert('É necessário informar um motivo.'); return; }
+  motivo=motivo.trim();
+  try{
+    var rIns=await SB.from('ciclico_divergencias').insert({
+      agenda_id:item.agendaId, sku:item.sku, c1:item.c1, c2:item.c2, saldo_sistema:item.saldo,
+      diferenca_qtd:item.diferencaQtd, diferenca_valor:item.diferencaValor,
+      decisao:decisao, observacao:motivo, decidido_por:A.sessao.id
+    });
+    if(rIns.error){ alert('Erro ao registrar decisão: '+rIns.error.message); return; }
+
+    var novoStatus=decisao==='terceira_contagem'?'aguardando_2a':'realizado';
+    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus}).eq('id',item.agendaId);
+    if(rUp.error){ alert('Decisão registrada, mas erro ao atualizar status: '+rUp.error.message); }
+
+    addLog('Decisão de divergência cíclica',sku+' · '+lbl+' · '+motivo);
+    alert('✅ Decisão registrada.');
+    dCDivergencias();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+
+window['ciclicoDecidirDivergencia']=ciclicoDecidirDivergencia;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
