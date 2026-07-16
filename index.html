@@ -1701,6 +1701,7 @@ async function ciclicoPersistirEnderecos(){
   }catch(e){ console.error('Erro ao persistir endereços:',e); }
 }
 
+// ── Modal nível 1: lista de endereços do SKU ──
 function ciclicoAbrirBip(sku){
   var item=(A.ciclico._itensContagem||[]).find(function(i){return i.sku===sku;});
   if(!item)return;
@@ -1708,26 +1709,23 @@ function ciclicoAbrirBip(sku){
   if(!item.enderecos.length){
     item.enderecos=[{nome:'Sem endereço cadastrado',extra:true,contado:false,vazio:false,bipes:[]}];
   }
-  var idxAtivo=item.enderecos.findIndex(function(e){return !e.contado&&!e.vazio;});
-  if(idxAtivo<0)idxAtivo=0;
-  __bipCicloAtual={sku:sku,item:item,enderecoAtivoIdx:idxAtivo};
+  __bipCicloAtual={sku:sku,item:item,enderecoAtivoIdx:null};
   var numeroContagem=(item.status==='aguardando_2a')?2:1;
   var tituloContagem=numeroContagem===2?'2ª contagem (divergiu na 1ª)':'1ª contagem';
 
   var html='<div id="modal-bip-ciclo" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px">'+
-    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
+    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'+
         '<div><div style="font-size:18px;font-weight:800;color:var(--cacau)">📋 '+sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(item.desc)+' · '+tituloContagem+'</div></div>'+
         '<button onclick="ciclicoFecharModalBip()" style="background:none;border:none;font-size:22px;color:var(--g400);cursor:pointer;line-height:1">×</button>'+
       '</div>'+
+      '<div style="font-size:11px;color:var(--g400);margin-bottom:10px">Clique num endereço pra abrir a tela de bipagem dele.</div>'+
       '<div id="ciclo-enderecos-wrap"></div>'+
-      '<button class="btn bs bsm" style="margin-top:8px" onclick="ciclicoAdicionarEnderecoExtra()">➕ Encontrei em outro endereço</button>'+
-      '<div style="border-top:1px solid var(--g200);margin:16px 0"></div>'+
-      '<div id="ciclo-bip-area"></div>'+
+      '<button class="btn bs bsm" style="margin-top:10px" onclick="ciclicoAdicionarEnderecoExtra()">➕ Encontrei em outro endereço</button>'+
       '<button class="btn bp bfl" onclick="ciclicoFecharContagemSku()" style="margin-top:16px">✅ Fechar contagem deste SKU</button>'+
     '</div></div>';
   var wrap=document.createElement('div'); wrap.innerHTML=html; document.body.appendChild(wrap.firstChild);
-  renderModalBipCiclo();
+  renderListaEnderecosModal();
 }
 
 function ciclicoFecharModalBip(){
@@ -1735,55 +1733,28 @@ function ciclicoFecharModalBip(){
   __bipCicloAtual=null;
 }
 
-function renderModalBipCiclo(){
+function renderListaEnderecosModal(){
   if(!__bipCicloAtual)return;
   var item=__bipCicloAtual.item;
   var contados=item.enderecos.filter(function(e){return e.contado||e.vazio;}).length;
   var pct=item.enderecos.length?Math.round(contados/item.enderecos.length*100):0;
-
   var wEnd=document.getElementById('ciclo-enderecos-wrap');
-  if(wEnd){
-    var html='<div style="font-size:12px;color:var(--g500);margin-bottom:8px">📍 Endereços — '+contados+'/'+item.enderecos.length+' contados ('+pct+'%)</div>'+
-      '<div style="height:6px;background:var(--g100);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:'+pct+'%;background:var(--gr)"></div></div>'+
-      '<div style="display:flex;flex-direction:column;gap:6px">';
-    item.enderecos.forEach(function(e,idx){
-      var ativo=idx===__bipCicloAtual.enderecoAtivoIdx;
-      var totalEnd=e.bipes.reduce(function(a,b){return a+parseFloat(b.qtd||0);},0);
-      var icone=e.vazio?'⭕':(e.contado?'✅':'⬜');
-      html+='<div onclick="ciclicoSelecionarEndereco('+idx+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid '+(ativo?'var(--ouro)':'var(--g200)')+';border-radius:8px;background:'+(ativo?'#FFF8E7':'var(--branco)')+'">'+
-        '<span>'+icone+'</span>'+
-        '<span style="flex:1;font-size:12px;font-weight:'+(ativo?'700':'500')+'">'+SEC.t(e.nome)+(e.extra?' <span style="font-size:9px;color:var(--am)">(novo)</span>':'')+'</span>'+
-        (e.contado?'<span style="font-size:11px;color:var(--g500)">'+totalEnd+'</span>':'')+
-      '</div>';
-    });
-    html+='</div>';
-    wEnd.innerHTML=html;
-  }
-
-  var wBip=document.getElementById('ciclo-bip-area');
-  if(wBip){
-    var endAtivo=item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
-    var html2='<div style="font-size:12px;font-weight:700;color:var(--cacau);margin-bottom:8px">Bipando em: '+SEC.t(endAtivo.nome)+'</div>'+
-      '<div class="fg"><label class="fl">Bipar código de barras</label><input class="fi" id="bip-ciclo-input" placeholder="Escaneie ou digite o código"></div>'+
-      '<div class="fr" style="gap:8px">'+
-        '<button class="btn bs bsm" onclick="ciclicoAdicionarBipe()">➕ Adicionar</button>'+
-        '<button class="btn bs bsm" style="color:var(--g500)" onclick="ciclicoMarcarEnderecoVazio()">⭕ Marcar como vazio</button>'+
-      '</div>'+
-      '<div id="bip-ciclo-lista" style="margin:14px 0;display:flex;flex-direction:column;gap:6px"></div>'+
-      '<div style="display:flex;justify-content:space-between;font-weight:700;padding:10px 0;border-top:1px solid var(--g200)">'+
-        '<span>Total bipado neste endereço</span><span id="bip-ciclo-total">0</span>'+
-      '</div>';
-    wBip.innerHTML=html2;
-    var inp=document.getElementById('bip-ciclo-input');
-    if(inp){ inp.focus(); inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();ciclicoAdicionarBipe();} }); }
-    renderBipCicloLista();
-  }
-}
-
-function ciclicoSelecionarEndereco(idx){
-  if(!__bipCicloAtual)return;
-  __bipCicloAtual.enderecoAtivoIdx=idx;
-  renderModalBipCiclo();
+  if(!wEnd)return;
+  var html='<div style="font-size:12px;color:var(--g500);margin-bottom:8px">📍 Endereços — '+contados+'/'+item.enderecos.length+' contados ('+pct+'%)</div>'+
+    '<div style="height:6px;background:var(--g100);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:'+pct+'%;background:var(--gr)"></div></div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px">';
+  item.enderecos.forEach(function(e,idx){
+    var totalEnd=e.bipes.reduce(function(a,b){return a+parseFloat(b.qtd||0);},0);
+    var icone=e.vazio?'⭕':(e.contado?'✅':'⬜');
+    html+='<div onclick="ciclicoAbrirPosicao('+idx+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid var(--g200);border-radius:8px;background:var(--branco)">'+
+      '<span style="font-size:16px">'+icone+'</span>'+
+      '<span style="flex:1;font-size:13px;font-weight:700;color:var(--cacau)">'+SEC.t(e.nome)+(e.extra?' <span style="font-size:9px;color:var(--am);font-weight:400">(novo)</span>':'')+'</span>'+
+      (e.contado?'<span style="font-size:12px;color:var(--g500)">'+totalEnd+'</span>':'')+
+      '<span style="color:var(--g300)">›</span>'+
+    '</div>';
+  });
+  html+='</div>';
+  wEnd.innerHTML=html;
 }
 
 function ciclicoAdicionarEnderecoExtra(){
@@ -1793,21 +1764,73 @@ function ciclicoAdicionarEnderecoExtra(){
   nome=SEC.t(nome.trim());
   if(!nome)return;
   __bipCicloAtual.item.enderecos.push({nome:nome,extra:true,contado:false,vazio:false,bipes:[]});
-  __bipCicloAtual.enderecoAtivoIdx=__bipCicloAtual.item.enderecos.length-1;
   ciclicoPersistirEnderecos();
-  renderModalBipCiclo();
+  renderListaEnderecosModal();
+}
+
+// ── Modal nível 2: posição — estilo idêntico ao do Inventário Geral (cabeçalho escuro,
+// Posição vazia / Fechar posição, bipe + tabela de itens contados). Sempre travado no
+// SKU da contagem: bipe de outro SKU é BLOQUEADO, não só avisado. ──
+function ciclicoAbrirPosicao(idx){
+  if(!__bipCicloAtual)return;
+  __bipCicloAtual.enderecoAtivoIdx=idx;
+  var end=__bipCicloAtual.item.enderecos[idx];
+  var statusLabel=end.vazio?'⬜ Posição vazia':(end.contado?'✅ Concluído':'🟡 Em contagem');
+  var html='<div id="modal-posicao-ciclo" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px">'+
+    '<div style="background:var(--branco);border-radius:16px;max-width:480px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">'+
+      '<div style="background:var(--cacau);color:var(--ouro);padding:16px 18px;border-radius:16px 16px 0 0">'+
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'+
+          '<div><div style="font-size:11px;font-weight:700;letter-spacing:.05em;opacity:.8">ENDEREÇO</div><div style="font-size:20px;font-weight:800">'+SEC.t(end.nome)+'</div>'+
+          '<div style="font-size:11px;margin-top:4px" id="pos-ciclo-status">'+statusLabel+'</div></div>'+
+          '<button onclick="ciclicoFecharPosicao()" style="background:none;border:none;color:var(--ouro);font-size:22px;cursor:pointer;line-height:1">×</button>'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'+
+          '<button onclick="ciclicoMarcarEnderecoVazio()" style="background:#F3EEFF;color:#5B2D8E;border:1.5px solid #C4A0F0;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer">⬜ Posição vazia</button>'+
+          '<button onclick="ciclicoFecharPosicaoConcluir()" style="background:#A8D5A2;color:#1A4A1A;border:1.5px solid #7BC47F;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer">✅ Fechar posição</button>'+
+        '</div>'+
+      '</div>'+
+      '<div style="padding:18px">'+
+        '<div style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;margin-bottom:8px">📷 Bipe o produto — SKU travado: '+__bipCicloAtual.sku+'</div>'+
+        '<div class="fr" style="gap:8px">'+
+          '<input class="fi" id="bip-ciclo-input" placeholder="Bipe ou digite o código..." style="flex:1">'+
+          '<button onclick="ciclicoAdicionarBipe()" style="background:var(--ouro);border:none;color:var(--cacau);border-radius:8px;width:44px;height:44px;font-size:16px;cursor:pointer;flex-shrink:0">✅</button>'+
+        '</div>'+
+        '<div id="bipe-ciclo-feedback"></div>'+
+        '<div style="margin-top:16px"><div style="font-size:11px;font-weight:700;color:var(--g600);text-transform:uppercase;margin-bottom:8px">📦 Itens contados (<span id="ciclo-itens-count">'+end.bipes.length+'</span>)</div>'+
+        '<div id="ciclo-itens-contados-tbl"></div></div>'+
+      '</div>'+
+    '</div></div>';
+  var wrap=document.createElement('div'); wrap.innerHTML=html; document.body.appendChild(wrap.firstChild);
+  renderTabelaItensPosicao();
+  setTimeout(function(){
+    var inp=document.getElementById('bip-ciclo-input');
+    if(inp){ inp.focus(); inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();ciclicoAdicionarBipe();} }); }
+  },150);
+}
+
+function ciclicoFecharPosicao(){
+  var m=document.getElementById('modal-posicao-ciclo'); if(m)m.remove();
+  renderListaEnderecosModal();
+}
+
+function ciclicoFecharPosicaoConcluir(){
+  if(!__bipCicloAtual)return;
+  var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
+  if(!end.bipes.length && !end.vazio){
+    if(!confirm('Nenhum item bipado nesta posição. Fechar mesmo assim (sem marcar como vazia)?'))return;
+  }
+  if(end.bipes.length)end.contado=true;
+  ciclicoPersistirEnderecos();
+  ciclicoFecharPosicao();
 }
 
 function ciclicoMarcarEnderecoVazio(){
   if(!__bipCicloAtual)return;
   var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
-  if(end.bipes.length){ if(!confirm('Esse endereço já tem itens bipados. Marcar como vazio mesmo assim (isso não apaga os bipes)?'))return; }
-  end.vazio=true;
+  if(end.bipes.length){ if(!confirm('Essa posição já tem itens bipados. Marcar como vazia mesmo assim (isso não apaga os bipes)?'))return; }
+  end.vazio=true; end.contado=false;
   ciclicoPersistirEnderecos();
-  // Avança pro próximo endereço pendente, se houver
-  var proximo=__bipCicloAtual.item.enderecos.findIndex(function(e){return !e.contado&&!e.vazio;});
-  if(proximo>=0)__bipCicloAtual.enderecoAtivoIdx=proximo;
-  renderModalBipCiclo();
+  var statusEl=document.getElementById('pos-ciclo-status'); if(statusEl)statusEl.innerHTML='⬜ Posição vazia';
 }
 
 function ciclicoAdicionarBipe(){
@@ -1816,33 +1839,54 @@ function ciclicoAdicionarBipe(){
   var cod=(input&&input.value||'').trim();
   if(!cod)return;
   var parsed=parseCodigoBipado(cod);
-  if(!parsed.ok){ alert('Código não reconhecido: '+(parsed.msg||'SKU não identificado')+'.'); return; }
-  if(parsed.qtdInvalida){ alert('Não consegui identificar a quantidade nesse código. Confira o código bipado.'); return; }
+  if(!parsed.ok){ ciclicoFeedbackErro('Código não reconhecido: '+(parsed.msg||'SKU não identificado')+'.'); if(input){input.value='';input.focus();} return; }
+  if(parsed.qtdInvalida){ ciclicoFeedbackErro('Não consegui identificar a quantidade nesse código. Confira o código bipado.'); if(input){input.value='';input.focus();} return; }
+  // TRAVA DE SKU — bloqueio de verdade, sem opção de "adicionar mesmo assim"
   if(parsed.sku!==__bipCicloAtual.sku){
-    if(!confirm('O código bipado é do SKU '+parsed.sku+', mas você está contando o SKU '+__bipCicloAtual.sku+'. Adicionar mesmo assim?'))return;
+    ciclicoFeedbackErro('⛔ Esse código é do SKU '+parsed.sku+', mas aqui você só pode bipar o SKU '+__bipCicloAtual.sku+'. Bipe bloqueado.');
+    if(input){input.value='';input.focus();}
+    return;
   }
   var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
   end.bipes.push(parsed);
   end.contado=true; end.vazio=false;
   if(input)input.value='';
   ciclicoPersistirEnderecos();
-  renderModalBipCiclo();
+  ciclicoFeedbackOk(parsed);
+  renderTabelaItensPosicao();
+  var statusEl=document.getElementById('pos-ciclo-status'); if(statusEl)statusEl.innerHTML='🟡 Em contagem';
+  if(input)input.focus();
 }
 
-function renderBipCicloLista(){
+function ciclicoFeedbackErro(msg){
+  var el=document.getElementById('bipe-ciclo-feedback');
+  if(!el)return;
+  el.innerHTML='<div style="background:#FBEAEA;border:2px solid var(--rd);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:12px;font-weight:700;color:var(--rd)">❌ '+SEC.t(msg)+'</div>';
+}
+function ciclicoFeedbackOk(parsed){
+  var el=document.getElementById('bipe-ciclo-feedback');
+  if(!el)return;
+  el.innerHTML='<div style="background:#EBF5EB;border:2px solid #5BA85B;border-radius:10px;padding:10px 12px;margin-top:10px">'+
+    '<div style="font-size:11px;font-weight:700;color:#1A4A1A;margin-bottom:4px">✅ REGISTRADO</div>'+
+    '<div style="font-size:12px;color:var(--g600)">Lote '+(parsed.lote||'—')+' · Qtd '+parsed.qtd+(parsed.fab?' · Fab '+parsed.fab:'')+(parsed.val?' · Val '+parsed.val:'')+'</div>'+
+  '</div>';
+}
+
+function renderTabelaItensPosicao(){
   if(!__bipCicloAtual)return;
-  var el=document.getElementById('bip-ciclo-lista');
+  var el=document.getElementById('ciclo-itens-contados-tbl');
   if(!el)return;
   var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
-  var total=0;
-  el.innerHTML=end.bipes.map(function(b,idx){
-    total+=parseFloat(b.qtd||0);
-    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;padding:6px 8px;background:var(--g50);border-radius:6px">'+
-      '<span>Lote '+(b.lote||'—')+' · Val '+(b.val||'—')+'</span><span style="font-weight:700">'+b.qtd+'</span>'+
-      '<button onclick="ciclicoRemoverBipeTemp('+idx+')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px">✕</button>'+
-    '</div>';
-  }).join('');
-  var tEl=document.getElementById('bip-ciclo-total'); if(tEl)tEl.textContent=total;
+  var cEl=document.getElementById('ciclo-itens-count'); if(cEl)cEl.textContent=end.bipes.length;
+  if(!end.bipes.length){ el.innerHTML='<div style="font-size:12px;color:var(--g500)">Nenhum item bipado ainda nesta posição.</div>'; return; }
+  var html='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>Lote</th><th>Fab.</th><th>Val.</th><th>Qtd</th><th></th></tr></thead><tbody>';
+  end.bipes.forEach(function(b,idx){
+    html+='<tr><td>'+(b.lote||'—')+'</td><td>'+(b.fab||'—')+'</td><td>'+(b.val||'—')+'</td><td style="font-weight:700">'+b.qtd+'</td>'+
+      '<td><button onclick="ciclicoRemoverBipeTemp('+idx+')" style="background:none;border:1px solid var(--rd);color:var(--rd);border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">Remover</button></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  el.innerHTML=html;
 }
 
 function ciclicoRemoverBipeTemp(idx){
@@ -1851,7 +1895,7 @@ function ciclicoRemoverBipeTemp(idx){
   end.bipes.splice(idx,1);
   if(!end.bipes.length)end.contado=false;
   ciclicoPersistirEnderecos();
-  renderModalBipCiclo();
+  renderTabelaItensPosicao();
 }
 
 async function ciclicoFecharContagemSku(){
@@ -1902,8 +1946,10 @@ async function ciclicoFecharContagemSku(){
 
 window['ciclicoAbrirBip']=ciclicoAbrirBip;
 window['ciclicoFecharModalBip']=ciclicoFecharModalBip;
-window['ciclicoSelecionarEndereco']=ciclicoSelecionarEndereco;
 window['ciclicoAdicionarEnderecoExtra']=ciclicoAdicionarEnderecoExtra;
+window['ciclicoAbrirPosicao']=ciclicoAbrirPosicao;
+window['ciclicoFecharPosicao']=ciclicoFecharPosicao;
+window['ciclicoFecharPosicaoConcluir']=ciclicoFecharPosicaoConcluir;
 window['ciclicoMarcarEnderecoVazio']=ciclicoMarcarEnderecoVazio;
 window['ciclicoAdicionarBipe']=ciclicoAdicionarBipe;
 window['ciclicoRemoverBipeTemp']=ciclicoRemoverBipeTemp;
