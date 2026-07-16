@@ -1486,7 +1486,10 @@ function renderAgendaLista(){
   var pendentes=lista.filter(function(a){return a.status==='sugerido';});
   var confirmados=lista.filter(function(a){return a.status==='confirmado'||a.status==='realizado';});
 
-  var html='<div class="card"><div class="ctit" style="margin-bottom:10px">Sugeridos hoje — '+pendentes.length+' pendente(s) de confirmação</div>';
+  var html='<div class="fr" style="justify-content:flex-end;margin-bottom:8px">'+
+    '<button class="btn bs bsm" style="border-color:var(--rd);color:var(--rd)" onclick="ciclicoReiniciarAgendaHoje()">🗑️ Reiniciar agenda de hoje</button>'+
+  '</div>';
+  html+='<div class="card"><div class="ctit" style="margin-bottom:10px">Sugeridos hoje — '+pendentes.length+' pendente(s) de confirmação</div>';
   if(pendentes.length){
     html+='<div class="fr" style="gap:8px;margin-bottom:10px">'+
       '<button class="btn bs bsm" onclick="ciclicoMarcarTodos(true)">☑️ Marcar todos</button>'+
@@ -1499,6 +1502,7 @@ function renderAgendaLista(){
         '<input type="checkbox" class="chk-agenda" data-id="'+a.id+'">'+
         '<span style="font-weight:700;color:var(--cacau);min-width:80px">'+a.sku+'</span>'+
         '<span style="color:var(--g500);font-size:12px;flex:1">'+SEC.t(desc)+'</span>'+
+        '<button onclick="event.preventDefault();ciclicoRemoverItemAgenda(\''+a.id+'\',\''+a.sku+'\')" style="background:none;border:none;color:var(--rd);font-size:14px;cursor:pointer;padding:2px 6px" title="Remover">✕</button>'+
       '</label>';
     });
     html+='</div><button class="btn bp bsm" style="margin-top:12px" onclick="ciclicoConfirmarSelecionados()">✅ Confirmar selecionados pra hoje</button>';
@@ -1513,7 +1517,7 @@ function renderAgendaLista(){
     confirmados.forEach(function(a){
       var desc=(mc[a.sku]&&mc[a.sku].desc)||'';
       var origemTxt=a.origem==='manual'?('✋ manual — '+(MOTIVO_LABEL[a.motivo_manual]||a.motivo_manual||'')):'🔄 automático';
-      html+='<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--g100)"><span style="font-weight:700;min-width:80px">'+a.sku+'</span><span style="color:var(--g500);flex:1">'+SEC.t(desc)+'</span><span style="color:var(--g400);font-size:11px">'+origemTxt+'</span></div>';
+      html+='<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--g100)"><span style="font-weight:700;min-width:80px">'+a.sku+'</span><span style="color:var(--g500);flex:1">'+SEC.t(desc)+'</span><span style="color:var(--g400);font-size:11px">'+origemTxt+'</span><button onclick="ciclicoRemoverItemAgenda(\''+a.id+'\',\''+a.sku+'\')" style="background:none;border:none;color:var(--rd);font-size:13px;cursor:pointer;padding:0 4px" title="Remover">✕</button></div>';
     });
     html+='</div>';
   } else {
@@ -1524,6 +1528,30 @@ function renderAgendaLista(){
   el.innerHTML=html;
 }
 
+async function ciclicoReiniciarAgendaHoje(){
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var hojeStr=hoje.toISOString().slice(0,10);
+  var lista=A.ciclico._agendaHoje||[];
+  if(!lista.length){alert('A agenda de hoje já está vazia.');return;}
+  if(!confirm('⚠️ Isso vai apagar TODOS os '+lista.length+' itens da agenda de hoje ('+hoje.toLocaleDateString('pt-BR')+'), inclusive os já confirmados.\n\nVocê pode gerar de novo depois. Continuar?'))return;
+  try{
+    var r=await SB.from('ciclico_agenda').delete().eq('data',hojeStr);
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    addLog('Reiniciou agenda cíclica',hojeStr+' · '+lista.length+' itens removidos');
+    dCAgenda();
+  }catch(e){alert('Erro: '+e.message);}
+}
+
+async function ciclicoRemoverItemAgenda(id,sku){
+  if(!confirm('Remover '+sku+' da agenda de hoje?'))return;
+  try{
+    var r=await SB.from('ciclico_agenda').delete().eq('id',id);
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    addLog('Removeu item da agenda cíclica',sku);
+    dCAgenda();
+  }catch(e){alert('Erro: '+e.message);}
+}
+
 function ciclicoMarcarTodos(marcar){
   document.querySelectorAll('.chk-agenda').forEach(function(c){c.checked=marcar;});
 }
@@ -1532,6 +1560,8 @@ window['ciclicoGerarAgendaHoje']=ciclicoGerarAgendaHoje;
 window['ciclicoIncluirManual']=ciclicoIncluirManual;
 window['ciclicoConfirmarSelecionados']=ciclicoConfirmarSelecionados;
 window['ciclicoMarcarTodos']=ciclicoMarcarTodos;
+window['ciclicoReiniciarAgendaHoje']=ciclicoReiniciarAgendaHoje;
+window['ciclicoRemoverItemAgenda']=ciclicoRemoverItemAgenda;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
