@@ -1682,12 +1682,11 @@ function renderContagemLista(){
   var html='<div class="ctit" style="margin-bottom:8px">📋 Pendentes de contagem — '+pendentes.length+'</div>';
   html+=pendentes.length?pendentes.map(function(i){return card(i,'var(--g200)','Saldo sistema: '+i.saldoEsperado,true);}).join(''):'<div style="color:var(--g500);font-size:12px;margin-bottom:16px">Nenhum.</div>';
 
-  if(aguard2.length){
+  if(aguard2.length&&podeAprovar){
     html+='<div class="ctit" style="margin:20px 0 8px;color:var(--am)">🔄 Aguardando 2ª contagem — '+aguard2.length+'</div>';
-    if(!podeAprovar)html+='<div style="font-size:11px;color:var(--g500);margin-bottom:8px">🔒 Só analista, gestor ou admin pode refazer a 2ª contagem.</div>';
-    html+=aguard2.map(function(i){return card(i,'var(--am)','1ª contagem: '+i.c1,podeAprovar);}).join('');
+    html+=aguard2.map(function(i){return card(i,'var(--am)','1ª contagem: '+i.c1,true);}).join('');
   }
-  if(divergentes.length){
+  if(divergentes.length&&podeAprovar){
     html+='<div class="ctit" style="margin:20px 0 8px;color:var(--rd)">⚠️ Divergência confirmada (aguarda análise) — '+divergentes.length+'</div>';
     html+=divergentes.map(function(i){return card(i,'var(--rd)','1ª: '+i.c1+' · 2ª: '+i.c2+' · sistema: '+i.saldoEsperado,false);}).join('');
   }
@@ -1955,15 +1954,23 @@ async function ciclicoFecharContagemSku(){
 
     var diverge=Math.abs(totalBipado-item.saldoEsperado)>0.001;
     var novoStatus;
+    var enderecosParaSalvar=item.enderecos;
     if(numeroContagem===1){
       novoStatus=diverge?'aguardando_2a':'realizado';
+      if(diverge){
+        // Reseta os endereços — a 2ª contagem precisa ser feita do zero,
+        // independente da 1ª, senão reabrir só mostra o que já tava contado antes.
+        enderecosParaSalvar=item.enderecos.map(function(e){
+          return {nome:e.nome,extra:e.extra,contado:false,vazio:false,bipes:[]};
+        });
+      }
     } else {
       var bateSaldo=Math.abs(totalBipado-item.saldoEsperado)<=0.001;
       var bateC1=item.c1!=null&&Math.abs(totalBipado-item.c1)<=0.001;
       novoStatus=(bateSaldo||bateC1)?'realizado':'divergente';
     }
 
-    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus,enderecos_status:item.enderecos}).eq('id',item.agendaId);
+    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus,enderecos_status:enderecosParaSalvar}).eq('id',item.agendaId);
     if(rUp.error){ alert('Contagem gravada, mas erro ao atualizar status da agenda: '+rUp.error.message); }
 
     addLog('Contagem cíclica registrada',item.sku+' · '+(numeroContagem===1?'1ª':'2ª')+' contagem · '+novoStatus);
@@ -2100,7 +2107,15 @@ async function ciclicoDecidirDivergencia(sku,decisao){
     if(rIns.error){ alert('Erro ao registrar decisão: '+rIns.error.message); return; }
 
     var novoStatus=decisao==='terceira_contagem'?'aguardando_2a':'realizado';
-    var rUp=await SB.from('ciclico_agenda').update({status:novoStatus}).eq('id',item.agendaId);
+    var updatePayload={status:novoStatus};
+    if(decisao==='terceira_contagem'){
+      var rBusca=await SB.from('ciclico_agenda').select('enderecos_status').eq('id',item.agendaId).single();
+      var enderecosAtuais=(rBusca.data&&rBusca.data.enderecos_status)||[];
+      updatePayload.enderecos_status=enderecosAtuais.map(function(e){
+        return {nome:e.nome,extra:e.extra,contado:false,vazio:false,bipes:[]};
+      });
+    }
+    var rUp=await SB.from('ciclico_agenda').update(updatePayload).eq('id',item.agendaId);
     if(rUp.error){ alert('Decisão registrada, mas erro ao atualizar status: '+rUp.error.message); }
 
     addLog('Decisão de divergência cíclica',sku+' · '+lbl+' · '+motivo);
