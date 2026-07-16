@@ -6162,8 +6162,7 @@ async function sbCarregarOperadoresIG(forcar){
 }
 
 function hGerNovo(){
-  return '<div class="stit">⚙️ Painel de Acessos</div>'+
-    '<div class="ssub" style="margin-bottom:16px">Usuários, perfis e permissões. Criação de novos usuários é feita no painel do Supabase.</div>'+
+  return '<div class="ssub" style="margin-bottom:16px">Usuários, perfis e permissões.</div>'+
     '<div id="ger-content"><div style="text-align:center;padding:40px;color:var(--g400)">⏳ Carregando usuários...</div></div>';
 }
 
@@ -6177,7 +6176,7 @@ async function dGerNovo(){
     return;
   }
   try{
-    var r=await SB.from('perfis').select('id,nome,perfil,ativo,ultimo_acesso,abas_customizadas,criado_em').order('criado_em',{ascending:true});
+    var r=await SB.from('perfis').select('id,nome,perfil,ativo,ultimo_acesso,abas_customizadas,criado_em,email').order('criado_em',{ascending:true});
     if(r.error){ el.innerHTML='<div class="card" style="color:var(--rd);padding:20px">Erro ao carregar: '+SEC.t(r.error.message)+'</div>'; return; }
     __perfisCache=r.data||[];
     renderGerUsuarios();
@@ -6224,7 +6223,10 @@ function renderGerUsuarios(){
     '<div class="card">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">'+
         '<div class="ctit" style="margin:0">Usuários</div>'+
-        '<button class="btn bs bsm" onclick="dGerNovo()" style="font-size:11px;padding:6px 12px">🔄 Atualizar</button>'+
+        '<div style="display:flex;gap:8px">'+
+          (isAdmin?'<button class="btn bp bsm" onclick="gerAbrirNovoUsuario()" style="font-size:11px;padding:6px 12px">➕ Novo usuário</button>':'')+
+          '<button class="btn bs bsm" onclick="dGerNovo()" style="font-size:11px;padding:6px 12px">🔄 Atualizar</button>'+
+        '</div>'+
       '</div>'+
       '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">'+
         '<thead><tr style="color:var(--g500);font-size:10px;letter-spacing:.05em">'+
@@ -6257,6 +6259,8 @@ function renderGerUsuarios(){
         // Botão editar acessos (abas customizadas)
         var temCustom=p.abas_customizadas&&p.abas_customizadas.length>0;
         html+='<button onclick="gerAbrirAcessos(\''+p.id+'\')" title="'+(temCustom?'Acessos personalizados':'Usa acessos padrão do perfil')+'" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid '+(temCustom?'var(--ouro)':'var(--g300)')+';background:'+(temCustom?'#FFF8E7':'var(--branco)')+';color:var(--cacau);font-weight:700;cursor:pointer;margin-right:6px">✏️ Acessos'+(temCustom?' •':'')+'</button>';
+        // Botão resetar senha
+        html+='<button onclick="gerResetarSenha(\''+p.id+'\')" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid var(--g300);background:var(--branco);color:var(--cacau);font-weight:700;cursor:pointer;margin-right:6px">🔑 Resetar senha</button>';
         // Botão ativar/desativar
         if(p.ativo){
           html+='<button onclick="gerToggleAtivo(\''+p.id+'\',false)" style="font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid var(--rd);background:var(--rdl);color:var(--rd);font-weight:700;cursor:pointer">🚫 Desativar</button>';
@@ -6270,13 +6274,76 @@ function renderGerUsuarios(){
   });
 
   html+='</tbody></table></div>'+
-    '<div style="margin-top:14px;padding:12px;background:var(--g50);border-radius:8px;font-size:11px;color:var(--g500)">'+
-      '💡 Para <strong>criar</strong> um novo usuário: painel Supabase → Authentication → Add user. O usuário nasce como <strong>operador</strong> e você ajusta o perfil aqui.'+
-    '</div>'+
     '</div>';
 
   el.innerHTML=html;
 }
+
+function gerarSenhaTemp(){
+  var chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  var s=''; for(var i=0;i<8;i++)s+=chars.charAt(Math.floor(Math.random()*chars.length));
+  return s;
+}
+
+function gerAbrirNovoUsuario(){
+  var html='<div id="modal-novo-usuario" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px">'+
+    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'+
+      '<div style="font-size:18px;font-weight:800;color:var(--cacau)">➕ Novo usuário</div>'+
+      '<button onclick="document.getElementById(\'modal-novo-usuario\').remove()" style="background:none;border:none;font-size:22px;color:var(--g400);cursor:pointer;line-height:1">×</button>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Nome</label><input id="novo-nome" class="fi" placeholder="Nome completo"></div>'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">E-mail</label><input id="novo-email" type="email" class="fi" placeholder="nome@dengo.com"></div>'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Perfil</label><select id="novo-perfil" class="fi">'+
+        ['operador','auditor','analista','gestor','admin'].map(function(pf){return '<option value="'+pf+'">'+pf+'</option>';}).join('')+
+      '</select></div>'+
+    '</div>'+
+    '<div style="font-size:11px;color:var(--g400);margin-top:12px">Uma senha temporária é gerada automaticamente — você repassa pro usuário depois.</div>'+
+    '<button class="btn bp bfl" id="btn-criar-usuario" onclick="gerCriarUsuario()" style="margin-top:16px">✅ Criar usuário</button>'+
+    '</div></div>';
+  var wrap=document.createElement('div'); wrap.innerHTML=html; document.body.appendChild(wrap.firstChild);
+}
+
+async function gerCriarUsuario(){
+  var nome=(document.getElementById('novo-nome')?.value||'').trim();
+  var email=(document.getElementById('novo-email')?.value||'').trim();
+  var perfil=document.getElementById('novo-perfil')?.value||'operador';
+  if(!nome||!email){alert('Preencha nome e e-mail.');return;}
+  var senha=gerarSenhaTemp();
+  var btn=document.getElementById('btn-criar-usuario');
+  if(btn){btn.disabled=true;btn.textContent='Criando...';}
+  try{
+    // Client temporário, sem persistir sessão — evita deslogar o admin ao criar o novo usuário
+    var tempClient=supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+    var r=await tempClient.auth.signUp({email:email,password:senha});
+    if(r.error){ alert('Erro ao criar usuário: '+r.error.message); if(btn){btn.disabled=false;btn.textContent='✅ Criar usuário';} return; }
+    var novoId=r.data&&r.data.user&&r.data.user.id;
+    if(!novoId){ alert('Não foi possível obter o ID do novo usuário.'); if(btn){btn.disabled=false;btn.textContent='✅ Criar usuário';} return; }
+    var rIns=await SB.from('perfis').insert({id:novoId,nome:nome,email:email,perfil:perfil,ativo:true,senha_temporaria:true});
+    if(rIns.error){ alert('Usuário criado no login, mas falhou ao salvar o perfil: '+rIns.error.message); if(btn){btn.disabled=false;btn.textContent='✅ Criar usuário';} return; }
+    addLog('Criou usuário',nome+' ('+email+') · '+perfil);
+    var m=document.getElementById('modal-novo-usuario'); if(m)m.remove();
+    alert('✅ Usuário criado!\n\nE-mail: '+email+'\nSenha temporária: '+senha+'\n\nRepasse essa senha pro usuário.');
+    dGerNovo();
+  }catch(e){ alert('Erro: '+e.message); if(btn){btn.disabled=false;btn.textContent='✅ Criar usuário';} }
+}
+
+async function gerResetarSenha(id){
+  var p=__perfisCache.find(function(x){return x.id===id;});
+  if(!p)return;
+  if(!p.email){ alert('Este usuário não tem e-mail cadastrado (conta antiga). Peça pra ele usar "Esqueci minha senha" na tela de login, ou cadastre o e-mail direto no Supabase.'); return; }
+  if(!confirm('Enviar e-mail de redefinição de senha pra '+p.nome+' ('+p.email+')?'))return;
+  try{
+    var r=await SB.auth.resetPasswordForEmail(p.email);
+    if(r.error){ alert('Erro: '+r.error.message); return; }
+    addLog('Solicitou reset de senha',p.nome);
+    alert('✅ E-mail de redefinição enviado pra '+p.email+'.');
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['gerAbrirNovoUsuario']=gerAbrirNovoUsuario;
+window['gerCriarUsuario']=gerCriarUsuario;
+window['gerResetarSenha']=gerResetarSenha;
 
 async function gerMudarPerfil(id,novoPerfil){
   var p=__perfisCache.find(function(x){return x.id===id;});
