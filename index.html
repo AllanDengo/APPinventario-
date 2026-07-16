@@ -728,6 +728,12 @@ const ABAS_CICLICO=[
 let A={
   sessao:null,usuarios:[],syslog:[],
   moduloAtual:null,
+  ciclico:{
+    mov:[],
+    movDataImport:null,
+    parametros:{janela_valor_meses:12,janela_movimentacao_meses:6,limite_recontagem_auto:10000},
+    classificacao:[]
+  },
   dados:{produtos:[],saldo:[],zwm:[],mov:[],skus:[],saldoConfronto:[],parceiros:{}},
   movDataImport:null,
   lista:[],registros:[],listas_historico:[],
@@ -988,6 +994,8 @@ function goTab(id){
   else if(id==='torre'){c.innerHTML=hTorre();dTorre();if(typeof sbSyncTorre==='function')sbSyncTorre();}
   else if(id==='gerenciar'){c.innerHTML=hGerNovo();dGerNovo();}
   else if(id==='central'){c.innerHTML=hCentral();dCentral();}
+  else if(id==='c_importar'){c.innerHTML=hCImportar();dCImportar();}
+  else if(id==='c_classificacao'){c.innerHTML=hCClassificacao();dCClassificacao();}
   else if(id.indexOf('c_')===0){c.innerHTML=hCicloPlaceholder(id);}
 }
 
@@ -1047,6 +1055,240 @@ function hCicloPlaceholder(id){
 window['mostrarHub']=mostrarHub;
 window['entrarGeral']=entrarGeral;
 window['entrarCiclico']=entrarCiclico;
+
+// ══════════════════════════════════════════
+// CÍCLICO — BLOCO 3: Importar Movimentação + Classificação ABC dupla
+// ══════════════════════════════════════════
+
+async function ciclicoHaSessaoAtiva(){
+  if(!SB)return false;
+  try{
+    var r=await SB.from('sessoes_inventario').select('id').eq('tipo','ciclico').eq('status','ativa').limit(1);
+    return !!(r.data&&r.data.length);
+  }catch(e){ console.warn('ciclicoHaSessaoAtiva:',e); return false; }
+}
+
+function stripAcc(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
+function checkMovCicloVenc(){return A.ciclico.movDataImport&&(Date.now()-parseInt(A.ciclico.movDataImport))>DIAS*864e5;}
+
+function upFCiclo(e){
+  var f=e.target.files[0]; if(!f)return;
+  var ext=f.name.split('.').pop().toLowerCase();
+  var st=document.getElementById('st-cmov');
+  if(!['xlsx','xls','csv'].includes(ext)){ if(st)st.innerHTML='❌ Formato inválido.'; return; }
+  if(f.size>30*1024*1024){ if(st)st.innerHTML='❌ Arquivo muito grande.'; return; }
+  if(st)st.innerHTML='⏳ Lendo arquivo...';
+  var r=new FileReader();
+  r.onload=function(e2){
+    try{
+      var wb=XLSX.read(e2.target.result,{type:'array',cellDates:true});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      parseMovCiclico(rows,f.name);
+    }catch(err){ if(st)st.innerHTML='❌ '+err.message; }
+  };
+  r.readAsArrayBuffer(f);
+}
+
+// Extrato de movimentações linha a linha (SAP). Soma abs(qtd) por SKU no período.
+function parseMovCiclico(rows,fn){
+  var st=document.getElementById('st-cmov');
+  if(!rows.length){ if(st)st.innerHTML='⚠️ Planilha vazia.'; return; }
+  var k=Object.keys(rows[0]);
+  var cS=k.find(function(x){return /^material$/i.test(x.trim());})||k[0];
+  var cQ=k.find(function(x){return /qtd.*registro/i.test(stripAcc(x));})||k.find(function(x){return /quantidade|qtd/i.test(x);})||k[1];
+  var cD=k.find(function(x){return /^texto breve material$/i.test(x.trim());})||k[1];
+  var cDt=k.find(function(x){return /data.*lan.amento/i.test(stripAcc(x));})||null;
+
+  var agr={}; var minDt=null,maxDt=null;
+  rows.forEach(function(r){
+    var sk=SEC.k(r[cS]); if(!sk)return;
+    var q=Math.abs(SEC.n(r[cQ]));
+    if(!agr[sk])agr[sk]={desc:SEC.t(r[cD]||''),qtd:0};
+    agr[sk].qtd+=q;
+    if(cDt){
+      var dt=r[cDt];
+      if(dt instanceof Date && !isNaN(dt)){
+        if(!minDt||dt<minDt)minDt=dt;
+        if(!maxDt||dt>maxDt)maxDt=dt;
+      }
+    }
+  });
+  A.ciclico.mov=Object.keys(agr).map(function(sku){return {sku:sku,desc:agr[sku].desc,qtd_total:agr[sku].qtd};});
+  A.ciclico._periodoDetectado={inicio:minDt?minDt.toISOString().slice(0,10):null,fim:maxDt?maxDt.toISOString().slice(0,10):null};
+
+  var periodoTxt=(minDt&&maxDt)?(' · período detectado: '+A.ciclico._periodoDetectado.inicio+' a '+A.ciclico._periodoDetectado.fim):'';
+  if(st)st.innerHTML='✅ '+A.ciclico.mov.length+' SKUs lidos de '+SEC.t(fn)+' ('+rows.length+' linhas de movimento)'+periodoTxt+'.';
+  var btn=document.getElementById('btn-confirmar-mov'); if(btn)btn.disabled=false;
+}
+
+async function confirmarImportMov(){
+  if(!A.ciclico.mov.length){alert('Nenhuma planilha processada ainda.');return;}
+  var ativo=await ciclicoHaSessaoAtiva();
+  if(ativo){
+    alert('⛔ Existe um Inventário Cíclico em andamento. Finalize ou cancele o inventário antes de atualizar a base de movimentação.');
+    return;
+  }
+  var btn=document.getElementById('btn-confirmar-mov');
+  if(btn){btn.disabled=true;btn.textContent='Importando...';}
+  try{
+    var mc={}; A.dados.produtos.forEach(function(p){mc[p.sku]=p;});
+    var per=A.ciclico._periodoDetectado||{};
+    var payload=A.ciclico.mov.map(function(m){
+      var custo=(mc[m.sku]&&mc[m.sku].custo)||0;
+      return {sku:m.sku,data_inicio:per.inicio||null,data_fim:per.fim||null,qtd_movimentada:m.qtd_total,valor_movimentado:m.qtd_total*custo,importado_por:A.sessao.id};
+    });
+    for(var i=0;i<payload.length;i+=500){
+      var lote=payload.slice(i,i+500);
+      var r=await SB.from('movimentacao').upsert(lote,{onConflict:'sku'});
+      if(r.error){ alert('Erro ao importar: '+r.error.message); if(btn){btn.disabled=false;btn.textContent='✅ Confirmar importação';} return; }
+    }
+    A.ciclico.movDataImport=String(Date.now());
+    try{localStorage.setItem('ic_ciclico_mov_ts',A.ciclico.movDataImport);}catch(e){}
+    addLog('Importou Movimentação',(per.inicio||'?')+' a '+(per.fim||'?')+' · '+payload.length+' SKUs');
+    alert('✅ Movimentação importada: '+payload.length+' SKUs.');
+    A.ciclico.mov=[];
+    var c=document.getElementById('content');
+    c.innerHTML=hCImportar(); dCImportar();
+  }catch(e){ alert('Erro: '+e.message); if(btn){btn.disabled=false;btn.textContent='✅ Confirmar importação';} }
+}
+
+function hCImportar(){
+  try{A.ciclico.movDataImport=localStorage.getItem('ic_ciclico_mov_ts')||A.ciclico.movDataImport||null;}catch(e){}
+  var movVenc=checkMovCicloVenc();
+  var movDias=A.ciclico.movDataImport?Math.floor((Date.now()-parseInt(A.ciclico.movDataImport))/864e5):null;
+  return '<div class="stit">Cíclico · Importar Movimentação</div>'+
+    '<div class="ssub">As bases de Produtos, Saldo e Endereços são as mesmas do Inventário Geral — importe/atualize por lá. Aqui você sobe o extrato de movimentações (SAP) do período; o sistema soma a quantidade movimentada por SKU.</div>'+
+    (A.dados.produtos.length?'':'<div class="alert ai">⚠️ Nenhum produto carregado ainda. Vá em <strong>Inventário Geral → Importar</strong> primeiro pra ter o custo dos SKUs.</div>')+
+    (movVenc?'<div class="prod-expiry-err">⛔ Movimentação com '+movDias+' dias — vencida! Reimporte (ciclo de 30 dias) pra manter a classificação atualizada.</div>':(movDias!=null&&movDias>20?'<div class="prod-expiry-warn">⚠️ Movimentação com '+movDias+' dias (validade: 30 dias). Considere reimportar em breve.</div>':''))+
+    (A.ciclico.movDataImport?'<div class="alert ao">✅ Última importação: '+new Date(parseInt(A.ciclico.movDataImport)).toLocaleString('pt-BR')+'</div>':'')+
+    '<div class="alert ai" style="line-height:1.6">ℹ️ <strong>Como tirar o relatório no SAP:</strong> transação <strong>MB51</strong> (Lista de documentos do material)<br>'+
+    'Filtros: <strong>Centro = 1410</strong> · <strong>Tipo de movimento = 261</strong> · <strong>Intervalo de data</strong> = período que você quer refletir (recomendado: últimos 30 dias)</div>'+
+    '<div class="card"><div class="ctit" style="margin-bottom:12px">Extrato de Movimentação</div>'+
+    '<div class="uz"><input type="file" accept=".xlsx,.xls,.csv" onchange="upFCiclo(event)">'+
+    '<div class="ui">🔄</div><div class="ul">Lista_de_documentos_do_material.xlsx</div><div class="uh">Material · Qtd. UM registro · Data de lançamento</div></div>'+
+    '<div id="st-cmov" style="margin-top:10px;font-size:12px;color:var(--g500)"></div></div>'+
+    '<button class="btn bp bfl" id="btn-confirmar-mov" onclick="confirmarImportMov()" disabled>✅ Confirmar importação</button>';
+}
+function dCImportar(){}
+
+async function carregarParametrosCiclico(){
+  if(!SB)return;
+  try{
+    var r=await SB.from('ciclico_parametros').select('*').eq('id',1).single();
+    if(r.data)A.ciclico.parametros=r.data;
+  }catch(e){ console.warn('carregarParametrosCiclico:',e); }
+}
+async function salvarParametrosCiclico(){
+  var jv=SEC.n(document.getElementById('jv-meses')?.value||12);
+  var jm=SEC.n(document.getElementById('jm-meses')?.value||6);
+  var lim=SEC.n(document.getElementById('lim-recontagem')?.value||10000);
+  try{
+    var r=await SB.from('ciclico_parametros').update({janela_valor_meses:jv,janela_movimentacao_meses:jm,limite_recontagem_auto:lim,atualizado_em:new Date().toISOString(),atualizado_por:A.sessao.id}).eq('id',1);
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    A.ciclico.parametros={janela_valor_meses:jv,janela_movimentacao_meses:jm,limite_recontagem_auto:lim};
+    addLog('Parâmetros do Cíclico',JSON.stringify(A.ciclico.parametros));
+    alert('✅ Parâmetros salvos.');
+  }catch(e){alert('Erro: '+e.message);}
+}
+
+async function calcularClassificacaoCiclica(){
+  if(!A.dados.skus.length){alert('Antes de calcular, importe e processe as bases (Produtos/Saldo/ZWM) na aba Importar do Inventário Geral.');return;}
+  var btn=document.getElementById('btn-calc-classificacao');
+  if(btn){btn.disabled=true;btn.textContent='Calculando...';}
+  try{
+    var rMov=await SB.from('movimentacao').select('sku,qtd_movimentada');
+    if(rMov.error){alert('Erro ao buscar movimentação: '+rMov.error.message); if(btn){btn.disabled=false;btn.textContent='⚡ Calcular classificação';} return;}
+    var movAgr={};
+    (rMov.data||[]).forEach(function(m){ movAgr[m.sku]=parseFloat(m.qtd_movimentada||0); });
+
+    var rMatriz=await SB.from('ciclico_regras_frequencia').select('*').eq('ativo',true);
+    var matriz={};
+    (rMatriz.data||[]).forEach(function(m){ matriz[m.classe_valor+m.classe_movimentacao]=m.frequencia_dias; });
+
+    var lA=A.abcRules.limA, lB=A.abcRules.limB, lC=A.abcRules.limC||99;
+    var base=A.dados.skus.map(function(s){return {sku:s.sku,desc:s.desc,valor:s.valor,mov:movAgr[s.sku]||0};});
+
+    var tv=base.reduce(function(a,s){return a+s.valor;},0);
+    base.sort(function(a,b){return b.valor-a.valor;});
+    var cv=0;
+    base.forEach(function(s){ cv+=s.valor; var p=tv>0?(cv/tv)*100:0; s.classe_valor=p<=lA?'A':p<=lB?'B':'C'; });
+
+    var tm=base.reduce(function(a,s){return a+s.mov;},0);
+    var base2=base.slice().sort(function(a,b){return b.mov-a.mov;});
+    var cm=0; var mClasse={};
+    base2.forEach(function(s){ cm+=s.mov; var p=tm>0?(cm/tm)*100:0; mClasse[s.sku]=p<=lA?'A':p<=lB?'B':'C'; });
+
+    var resultado=base.map(function(s){
+      var cv2=s.classe_valor, cm2=mClasse[s.sku]||'C';
+      var comb=cv2+cm2;
+      var freq=matriz[comb]||90;
+      return {sku:s.sku,desc:s.desc,valor:s.valor,mov:s.mov,classe_valor:cv2,classe_movimentacao:cm2,classe_combinada:comb,frequencia_dias:freq};
+    });
+    resultado.sort(function(a,b){return b.valor-a.valor;});
+    A.ciclico.classificacao=resultado;
+
+    var payload=resultado.map(function(r2){
+      return {sku:r2.sku,classe_valor:r2.classe_valor,classe_movimentacao:r2.classe_movimentacao,classe_combinada:r2.classe_combinada,frequencia_dias_aplicada:r2.frequencia_dias,regra_origem:'matriz',calculado_em:new Date().toISOString()};
+    });
+    for(var i=0;i<payload.length;i+=500){
+      var lote=payload.slice(i,i+500);
+      await SB.from('ciclico_classificacao').upsert(lote,{onConflict:'sku'});
+    }
+    addLog('Calculou classificação cíclica',resultado.length+' SKUs');
+    renderResultadoClassificacao();
+  }catch(e){ alert('Erro: '+e.message); }
+  if(btn){btn.disabled=false;btn.textContent='⚡ Calcular classificação';}
+}
+
+function renderResultadoClassificacao(){
+  var el=document.getElementById('resultado-classificacao');
+  if(!el)return;
+  var dados=A.ciclico.classificacao;
+  if(!dados.length){el.innerHTML='';return;}
+  var contagem={};
+  dados.forEach(function(d){ contagem[d.classe_combinada]=(contagem[d.classe_combinada]||0)+1; });
+  var resumoHtml=Object.keys(contagem).sort().map(function(k){return '<span class="badge" style="margin-right:6px">'+k+': '+contagem[k]+'</span>';}).join('');
+  var linhas=dados.slice(0,200).map(function(d){
+    return '<tr><td>'+d.sku+'</td><td>'+SEC.t(d.desc)+'</td><td>R$ '+fv(d.valor)+'</td><td>'+fv(d.mov)+'</td><td>'+d.classe_valor+'</td><td>'+d.classe_movimentacao+'</td><td><strong>'+d.classe_combinada+'</strong></td><td>'+d.frequencia_dias+' dias</td></tr>';
+  }).join('');
+  el.innerHTML='<div class="card mt16"><div class="ctit" style="margin-bottom:10px">Resultado — '+dados.length+' SKUs classificados</div>'+
+    '<div style="margin-bottom:12px">'+resumoHtml+'</div>'+
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Descrição</th><th>Valor</th><th>Mov.</th><th>Cl. Valor</th><th>Cl. Mov.</th><th>Combinada</th><th>Frequência</th></tr></thead>'+
+    '<tbody>'+linhas+'</tbody></table></div>'+
+    (dados.length>200?'<div style="font-size:11px;color:var(--g400);margin-top:8px">Mostrando os 200 primeiros por valor. Todos os '+dados.length+' foram salvos na base.</div>':'')+
+  '</div>';
+}
+
+function hCClassificacao(){
+  var p=A.ciclico.parametros;
+  return '<div class="stit">Cíclico · Classificação ABC dupla</div>'+
+    '<div class="ssub">Cruza Valor em estoque × Movimentação pra classificar cada SKU (ex: AC) e definir a frequência de contagem.</div>'+
+    (A.dados.skus.length?'':'<div class="alert ai">⚠️ Nenhum dado processado. Importe e clique em "Processar e Classificar" na aba Importar do Inventário Geral primeiro.</div>')+
+    '<div class="card"><div class="ctit" style="margin-bottom:12px">Parâmetros</div>'+
+    '<div class="fr" style="gap:16px;flex-wrap:wrap">'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Janela de Movimentação (meses)</label><input type="number" id="jm-meses" class="fi" style="max-width:100px" value="'+(p.janela_movimentacao_meses||6)+'"></div>'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Janela de Valor (meses)</label><input type="number" id="jv-meses" class="fi" style="max-width:100px" value="'+(p.janela_valor_meses||12)+'"></div>'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Limite recontagem automática (R$)</label><input type="number" id="lim-recontagem" class="fi" style="max-width:140px" value="'+(p.limite_recontagem_auto||10000)+'"></div>'+
+    '</div>'+
+    '<button class="btn bsm" style="margin-top:12px" onclick="salvarParametrosCiclico()">💾 Salvar parâmetros</button>'+
+    '</div>'+
+    '<button class="btn bp bfl" id="btn-calc-classificacao" onclick="calcularClassificacaoCiclica()">⚡ Calcular classificação</button>'+
+    '<div id="resultado-classificacao"></div>';
+}
+async function dCClassificacao(){
+  await carregarParametrosCiclico();
+  var jm=document.getElementById('jm-meses'); if(jm)jm.value=A.ciclico.parametros.janela_movimentacao_meses||6;
+  var jv=document.getElementById('jv-meses'); if(jv)jv.value=A.ciclico.parametros.janela_valor_meses||12;
+  var lim=document.getElementById('lim-recontagem'); if(lim)lim.value=A.ciclico.parametros.limite_recontagem_auto||10000;
+  renderResultadoClassificacao();
+}
+
+window['upFCiclo']=upFCiclo;
+window['confirmarImportMov']=confirmarImportMov;
+window['salvarParametrosCiclico']=salvarParametrosCiclico;
+window['calcularClassificacaoCiclica']=calcularClassificacaoCiclica;
 
 // ── IMPORTAÇÃO ──
 let LD={p:false,s:false,z:false,m:false};
