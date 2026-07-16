@@ -1659,12 +1659,15 @@ function renderContagemLista(){
   var aguard2=itens.filter(function(i){return i.status==='aguardando_2a';});
   var divergentes=itens.filter(function(i){return i.status==='divergente';});
   var feitos=itens.filter(function(i){return i.status==='realizado';});
+  var podeAprovar=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
 
-  function card(i,corBorda,label){
+  function card(i,corBorda,label,clicavel){
     var totalEnd=i.enderecos.length;
     var contadosEnd=i.enderecos.filter(function(e){return e.contado||e.vazio;}).length;
     var pct=totalEnd?Math.round(contadosEnd/totalEnd*100):0;
-    return '<div onclick="ciclicoAbrirBip(\''+i.sku+'\')" style="cursor:pointer;padding:12px;border:1.5px solid '+corBorda+';border-radius:10px;margin-bottom:8px;background:var(--branco)">'+
+    var onclickAttr=clicavel?' onclick="ciclicoAbrirBip(\''+i.sku+'\')" style="cursor:pointer;'
+                            :' style="cursor:default;opacity:.75;';
+    return '<div'+onclickAttr+'padding:12px;border:1.5px solid '+corBorda+';border-radius:10px;margin-bottom:8px;background:var(--branco)">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
         '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+' '+(i.origem==='manual'?'<span style="font-size:9px;background:var(--ouro);color:var(--cacau);padding:1px 6px;border-radius:4px;margin-left:4px">MANUAL</span>':(i.classeCombinada?'<span style="font-size:9px;background:var(--g100);color:var(--g500);padding:1px 6px;border-radius:4px;margin-left:4px">'+i.classeCombinada+'</span>':''))+'</div>'+
         '<div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div>'+
@@ -1675,15 +1678,16 @@ function renderContagemLista(){
   }
 
   var html='<div class="ctit" style="margin-bottom:8px">📋 Pendentes de contagem — '+pendentes.length+'</div>';
-  html+=pendentes.length?pendentes.map(function(i){return card(i,'var(--g200)','Saldo sistema: '+i.saldoEsperado);}).join(''):'<div style="color:var(--g500);font-size:12px;margin-bottom:16px">Nenhum.</div>';
+  html+=pendentes.length?pendentes.map(function(i){return card(i,'var(--g200)','Saldo sistema: '+i.saldoEsperado,true);}).join(''):'<div style="color:var(--g500);font-size:12px;margin-bottom:16px">Nenhum.</div>';
 
   if(aguard2.length){
     html+='<div class="ctit" style="margin:20px 0 8px;color:var(--am)">🔄 Aguardando 2ª contagem — '+aguard2.length+'</div>';
-    html+=aguard2.map(function(i){return card(i,'var(--am)','1ª contagem: '+i.c1);}).join('');
+    if(!podeAprovar)html+='<div style="font-size:11px;color:var(--g500);margin-bottom:8px">🔒 Só analista, gestor ou admin pode refazer a 2ª contagem.</div>';
+    html+=aguard2.map(function(i){return card(i,'var(--am)','1ª contagem: '+i.c1,podeAprovar);}).join('');
   }
   if(divergentes.length){
     html+='<div class="ctit" style="margin:20px 0 8px;color:var(--rd)">⚠️ Divergência confirmada (aguarda análise) — '+divergentes.length+'</div>';
-    html+=divergentes.map(function(i){return card(i,'var(--rd)','1ª: '+i.c1+' · 2ª: '+i.c2+' · sistema: '+i.saldoEsperado);}).join('');
+    html+=divergentes.map(function(i){return card(i,'var(--rd)','1ª: '+i.c1+' · 2ª: '+i.c2+' · sistema: '+i.saldoEsperado,false);}).join('');
   }
   if(feitos.length){
     html+='<div class="ctit" style="margin:20px 0 8px;color:var(--gr)">✅ Concluídos hoje — '+feitos.length+'</div>';
@@ -1706,6 +1710,11 @@ function ciclicoAbrirBip(sku){
   var item=(A.ciclico._itensContagem||[]).find(function(i){return i.sku===sku;});
   if(!item)return;
   if(item.status==='realizado'){ alert('Esse SKU já foi concluído hoje.'); return; }
+  if(item.status==='divergente'){ alert('Esse SKU está com divergência confirmada, aguardando análise (aba Divergências).'); return; }
+  if(item.status==='aguardando_2a'){
+    var podeAprovar=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
+    if(!podeAprovar){ alert('🔒 Esse SKU divergiu na 1ª contagem e só pode ser recontado por um analista, gestor ou admin.'); return; }
+  }
   if(!item.enderecos.length){
     item.enderecos=[{nome:'Sem endereço cadastrado',extra:true,contado:false,vazio:false,bipes:[]}];
   }
@@ -1746,9 +1755,12 @@ function renderListaEnderecosModal(){
   item.enderecos.forEach(function(e,idx){
     var totalEnd=e.bipes.reduce(function(a,b){return a+parseFloat(b.qtd||0);},0);
     var icone=e.vazio?'⭕':(e.contado?'✅':'⬜');
-    html+='<div onclick="ciclicoAbrirPosicao('+idx+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid var(--g200);border-radius:8px;background:var(--branco)">'+
+    var corBorda=e.vazio?'#C4A0F0':(e.contado?'var(--gr)':'var(--g200)');
+    var corFundo=e.vazio?'#F3EEFF':'var(--branco)';
+    var corTexto=e.vazio?'#5B2D8E':'var(--cacau)';
+    html+='<div onclick="ciclicoAbrirPosicao('+idx+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid '+corBorda+';border-radius:8px;background:'+corFundo+'">'+
       '<span style="font-size:16px">'+icone+'</span>'+
-      '<span style="flex:1;font-size:13px;font-weight:700;color:var(--cacau)">'+SEC.t(e.nome)+(e.extra?' <span style="font-size:9px;color:var(--am);font-weight:400">(novo)</span>':'')+'</span>'+
+      '<span style="flex:1;font-size:13px;font-weight:700;color:'+corTexto+'">'+SEC.t(e.nome)+(e.extra?' <span style="font-size:9px;color:var(--am);font-weight:400">(novo)</span>':'')+(e.vazio?' <span style="font-size:9px;font-weight:400">(vazia)</span>':'')+'</span>'+
       (e.contado?'<span style="font-size:12px;color:var(--g500)">'+totalEnd+'</span>':'')+
       '<span style="color:var(--g300)">›</span>'+
     '</div>';
@@ -1827,10 +1839,13 @@ function ciclicoFecharPosicaoConcluir(){
 function ciclicoMarcarEnderecoVazio(){
   if(!__bipCicloAtual)return;
   var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
-  if(end.bipes.length){ if(!confirm('Essa posição já tem itens bipados. Marcar como vazia mesmo assim (isso não apaga os bipes)?'))return; }
+  if(end.bipes.length){
+    if(!confirm('Essa posição já tem '+end.bipes.length+' item(ns) bipado(s). Marcar como vazia vai ZERAR esses bipes. Confirma?'))return;
+    end.bipes=[];
+  }
   end.vazio=true; end.contado=false;
   ciclicoPersistirEnderecos();
-  var statusEl=document.getElementById('pos-ciclo-status'); if(statusEl)statusEl.innerHTML='⬜ Posição vazia';
+  ciclicoFecharPosicao();
 }
 
 function ciclicoAdicionarBipe(){
@@ -1848,7 +1863,9 @@ function ciclicoAdicionarBipe(){
     return;
   }
   var end=__bipCicloAtual.item.enderecos[__bipCicloAtual.enderecoAtivoIdx];
-  end.bipes.push(parsed);
+  var existente=end.bipes.find(function(b){return (b.lote||'')===(parsed.lote||'')&&(b.fab||'')===(parsed.fab||'')&&(b.val||'')===(parsed.val||'');});
+  if(existente){ existente.qtd=parseFloat(existente.qtd||0)+parseFloat(parsed.qtd||0); }
+  else { end.bipes.push(parsed); }
   end.contado=true; end.vazio=false;
   if(input)input.value='';
   ciclicoPersistirEnderecos();
