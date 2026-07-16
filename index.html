@@ -706,23 +706,20 @@ const SEC={
 };
 
 const ABAS=[
-  {id:'importacao', label:'1 · Importar',   icon:'📥'},
-  {id:'inv_geral',  label:'2 · Inv. Geral', icon:'🏭'},
-  {id:'central',    label:'3 · Central',    icon:'🗼'},
-  {id:'confronto',  label:'4 · Confronto',  icon:'🔍'},
-  {id:'torre',      label:'5 · Torre de Controle', icon:'🗼'},
-  {id:'gerenciar',  label:'6 · Gerenciar',  icon:'👥'},
+  {id:'inv_geral',  label:'1 · Inv. Geral', icon:'🏭'},
+  {id:'central',    label:'2 · Central',    icon:'🗼'},
+  {id:'confronto',  label:'3 · Confronto',  icon:'🔍'},
+  {id:'torre',      label:'4 · Torre de Controle', icon:'🗼'},
 ];
 
-// Módulo Inventário Cíclico — Bloco 2: esqueleto de navegação (conteúdo real vem nos próximos blocos)
+// Módulo Inventário Cíclico — conteúdo real vem sendo construído por blocos
 const ABAS_CICLICO=[
-  {id:'c_importar',       label:'1 · Importar',       icon:'📥'},
-  {id:'c_classificacao',  label:'2 · Classificação',  icon:'🔠'},
-  {id:'c_agenda',         label:'3 · Agenda do dia',  icon:'🗓️'},
-  {id:'c_contagem',       label:'4 · Contagem',       icon:'📋'},
-  {id:'c_divergencias',   label:'5 · Divergências',   icon:'🔍'},
-  {id:'c_indicadores',    label:'6 · Indicadores',    icon:'📊'},
-  {id:'c_config',         label:'7 · Config',         icon:'⚙️'},
+  {id:'c_classificacao',  label:'1 · Classificação',  icon:'🔠'},
+  {id:'c_agenda',         label:'2 · Agenda do dia',  icon:'🗓️'},
+  {id:'c_contagem',       label:'3 · Contagem',       icon:'📋'},
+  {id:'c_divergencias',   label:'4 · Divergências',   icon:'🔍'},
+  {id:'c_indicadores',    label:'5 · Indicadores',    icon:'📊'},
+  {id:'c_config',         label:'6 · Config',         icon:'⚙️'},
 ];
 
 let A={
@@ -978,12 +975,12 @@ function goTab(id){
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
   document.getElementById('nt-'+id)?.classList.add('active');
   if(A.sessao&&A.sessoesAtivas[A.sessao.id]){
-    const modLabel={importacao:'Importar',abc:'Curva ABC',contagem:'Cíclico',inv_geral:'Inv. Geral',acompanhamento:'Acompanhamento',dashboard:'Dashboard',gerenciar:'Gerenciar',central:'Central',confronto:'Confronto',torre:'Torre de Controle',status_listas:'Status Listas',c_importar:'Cíclico · Importar',c_classificacao:'Cíclico · Classificação',c_agenda:'Cíclico · Agenda',c_contagem:'Cíclico · Contagem',c_divergencias:'Cíclico · Divergências',c_indicadores:'Cíclico · Indicadores',c_config:'Cíclico · Config'}[id]||id;
+    const modLabel={importacao:'Importar',abc:'Curva ABC',contagem:'Cíclico',inv_geral:'Inv. Geral',acompanhamento:'Acompanhamento',dashboard:'Dashboard',gerenciar:'Painel de Acessos',central:'Central',confronto:'Confronto',torre:'Torre de Controle',status_listas:'Status Listas',c_classificacao:'Cíclico · Classificação',c_agenda:'Cíclico · Agenda',c_contagem:'Cíclico · Contagem',c_divergencias:'Cíclico · Divergências',c_indicadores:'Cíclico · Indicadores',c_config:'Cíclico · Config'}[id]||id;
     A.sessoesAtivas[A.sessao.id].modulo=modLabel;
     if(id==='contagem'||id==='c_contagem')A.sessoesAtivas[A.sessao.id].status='contando';
   }
   const c=document.getElementById('content');
-  if(id==='importacao')c.innerHTML=hImp();
+  if(id==='importacao')c.innerHTML=hImportarBases();
   else if(id==='abc'){c.innerHTML=hABC();if(A.dados.skus.length)dABC();}
   else if(id==='contagem'){c.innerHTML=hCont();if(A.dados.skus.length||A.lista.length)dCont();}
   else if(id==='acompanhamento'){c.innerHTML=hAcomp();dAcomp();}
@@ -994,12 +991,11 @@ function goTab(id){
   else if(id==='torre'){c.innerHTML=hTorre();dTorre();if(typeof sbSyncTorre==='function')sbSyncTorre();}
   else if(id==='gerenciar'){c.innerHTML=hGerNovo();dGerNovo();}
   else if(id==='central'){c.innerHTML=hCentral();dCentral();}
-  else if(id==='c_importar'){c.innerHTML=hCImportar();dCImportar();}
   else if(id==='c_classificacao'){c.innerHTML=hCClassificacao();dCClassificacao();}
   else if(id.indexOf('c_')===0){c.innerHTML=hCicloPlaceholder(id);}
 }
 
-// ── HUB (tela inicial com os 2 cards) ──
+// ── HUB (tela inicial com os cards) ──
 function mostrarHub(){
   A.moduloAtual=null;
   var t=document.getElementById('apptit-txt'); if(t)t.textContent='Inventário';
@@ -1007,24 +1003,28 @@ function mostrarHub(){
   document.querySelectorAll('.ntab').forEach(el=>el.classList.remove('active'));
   renderNav();
   var abas=(A.sessao&&A.sessao.abas)||[];
+  var temImportar=abas.includes('importacao');
   var temGeral=ABAS.some(a=>abas.includes(a.id));
   var temCiclico=ABAS_CICLICO.some(a=>abas.includes(a.id));
-  document.getElementById('content').innerHTML=hHub(temGeral,temCiclico);
+  var temGerenciar=abas.includes('gerenciar');
+  document.getElementById('content').innerHTML=hHub(temImportar,temGeral,temCiclico,temGerenciar);
 }
-function hHub(temGeral,temCiclico){
+function hHub(temImportar,temGeral,temCiclico,temGerenciar){
   function card(titulo,desc,icone,liberado,fn){
-    return '<div '+(liberado?'onclick="'+fn+'()"':'')+' style="cursor:'+(liberado?'pointer':'not-allowed')+';opacity:'+(liberado?'1':'.55')+';background:var(--branco);border:1.5px solid var(--g200);border-radius:18px;padding:32px;flex:1;min-width:260px;max-width:340px;box-shadow:0 2px 10px rgba(61,35,20,.06)">'+
-      '<div style="font-size:40px;margin-bottom:14px">'+icone+'</div>'+
-      '<div style="font-size:18px;font-weight:800;color:var(--cacau);margin-bottom:6px">'+titulo+'</div>'+
-      '<div style="font-size:13px;color:var(--g500);line-height:1.5">'+(liberado?desc:'⛔ Você não possui acesso a este módulo. Fale com o administrador.')+'</div>'+
+    return '<div '+(liberado?'onclick="'+fn+'()"':'')+' style="cursor:'+(liberado?'pointer':'not-allowed')+';opacity:'+(liberado?'1':'.55')+';background:var(--branco);border:1.5px solid var(--g200);border-radius:18px;padding:28px;flex:1;min-width:230px;max-width:280px;box-shadow:0 2px 10px rgba(61,35,20,.06)">'+
+      '<div style="font-size:36px;margin-bottom:12px">'+icone+'</div>'+
+      '<div style="font-size:16px;font-weight:800;color:var(--cacau);margin-bottom:6px">'+titulo+'</div>'+
+      '<div style="font-size:12px;color:var(--g500);line-height:1.5">'+(liberado?desc:'⛔ Sem acesso. Fale com o administrador.')+'</div>'+
     '</div>';
   }
-  return '<div style="display:flex;flex-direction:column;align-items:center;padding:60px 20px">'+
+  return '<div style="display:flex;flex-direction:column;align-items:center;padding:50px 20px">'+
     '<div style="font-size:22px;font-weight:800;color:var(--cacau);margin-bottom:6px">Selecione o módulo</div>'+
-    '<div style="font-size:13px;color:var(--g500);margin-bottom:36px">Escolha entre o inventário anual completo ou o cíclico do dia a dia.</div>'+
-    '<div style="display:flex;gap:24px;flex-wrap:wrap;justify-content:center;max-width:760px">'+
+    '<div style="font-size:13px;color:var(--g500);margin-bottom:32px">Importação, inventário anual, inventário do dia a dia e acessos.</div>'+
+    '<div style="display:flex;gap:20px;flex-wrap:wrap;justify-content:center;max-width:1000px">'+
+      card('Importar Bases','Produtos, Saldo, Endereços e Movimentação — as planilhas que alimentam os dois inventários.','📥',temImportar,'entrarImportarBases')+
       card('Inventário Geral','Contagem completa anual, mapa de endereços e Torre de Controle.','🏭',temGeral,'entrarGeral')+
       card('Inventário Cíclico','Contagens diárias por prioridade de curva ABC, ao longo do ano.','🔄',temCiclico,'entrarCiclico')+
+      card('Painel de Acessos','Usuários, perfis e permissões por aba.','⚙️',temGerenciar,'entrarGerenciar')+
     '</div>'+
   '</div>';
 }
@@ -1044,6 +1044,25 @@ function entrarCiclico(){
   var first=ABAS_CICLICO.find(a=>A.sessao.abas.includes(a.id));
   if(first)goTab(first.id);
 }
+function entrarImportarBases(){
+  if(!A.sessao.abas.includes('importacao'))return;
+  A.moduloAtual='importar_bases';
+  var t=document.getElementById('apptit-txt'); if(t)t.textContent='Importar Bases';
+  var btm=document.getElementById('btn-trocar-modulo'); if(btm)btm.style.display='inline-block';
+  renderNav();
+  document.querySelectorAll('.ntab').forEach(el=>el.classList.remove('active'));
+  document.getElementById('content').innerHTML=hImportarBases();
+}
+function entrarGerenciar(){
+  if(!A.sessao.abas.includes('gerenciar'))return;
+  A.moduloAtual='painel_acessos';
+  var t=document.getElementById('apptit-txt'); if(t)t.textContent='Painel de Acessos';
+  var btm=document.getElementById('btn-trocar-modulo'); if(btm)btm.style.display='inline-block';
+  renderNav();
+  document.querySelectorAll('.ntab').forEach(el=>el.classList.remove('active'));
+  document.getElementById('content').innerHTML=hGerNovo();
+  dGerNovo();
+}
 function hCicloPlaceholder(id){
   var info=ABAS_CICLICO.find(a=>a.id===id);
   return '<div style="text-align:center;padding:80px 20px">'+
@@ -1055,6 +1074,8 @@ function hCicloPlaceholder(id){
 window['mostrarHub']=mostrarHub;
 window['entrarGeral']=entrarGeral;
 window['entrarCiclico']=entrarCiclico;
+window['entrarImportarBases']=entrarImportarBases;
+window['entrarGerenciar']=entrarGerenciar;
 
 // ══════════════════════════════════════════
 // CÍCLICO — BLOCO 3: Importar Movimentação + Classificação ABC dupla
@@ -1153,17 +1174,36 @@ async function confirmarImportMov(){
   }catch(e){ alert('Erro: '+e.message); if(btn){btn.disabled=false;btn.textContent='✅ Confirmar importação';} }
 }
 
+function irParaImportarGeral(){ entrarGeral(); goTab('importacao'); }
+function statusLinhaBase(nome,qtd,ts){
+  var ok=qtd>0;
+  return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 0">'+
+    '<span>'+(ok?'✅':'⛔')+'</span><span style="flex:1;font-weight:600;color:var(--cacau)">'+nome+'</span>'+
+    '<span style="color:var(--g500)">'+(ok?(qtd.toLocaleString('pt-BR')+' itens'+(ts?' · atualizado '+new Date(parseInt(ts)).toLocaleDateString('pt-BR'):'')):'não carregado')+'</span>'+
+  '</div>';
+}
+
 function hCImportar(){
   try{A.ciclico.movDataImport=localStorage.getItem('ic_ciclico_mov_ts')||A.ciclico.movDataImport||null;}catch(e){}
   var movVenc=checkMovCicloVenc();
   var movDias=A.ciclico.movDataImport?Math.floor((Date.now()-parseInt(A.ciclico.movDataImport))/864e5):null;
+  var faltaBase=!A.dados.produtos.length||!A.dados.saldo.length||!A.dados.zwm.length;
   return '<div class="stit">Cíclico · Importar Movimentação</div>'+
-    '<div class="ssub">As bases de Produtos, Saldo e Endereços são as mesmas do Inventário Geral — importe/atualize por lá. Aqui você sobe o extrato de movimentações (SAP) do período; o sistema soma a quantidade movimentada por SKU.</div>'+
-    (A.dados.produtos.length?'':'<div class="alert ai">⚠️ Nenhum produto carregado ainda. Vá em <strong>Inventário Geral → Importar</strong> primeiro pra ter o custo dos SKUs.</div>')+
+    '<div class="ssub">Aqui você sobe só o extrato de movimentações (SAP). As outras 3 bases são compartilhadas com o Inventário Geral — veja o status delas abaixo.</div>'+
+    '<div class="card"><div class="ctit" style="margin-bottom:6px">📦 Bases compartilhadas com o Inventário Geral</div>'+
+    '<div style="display:flex;flex-direction:column">'+
+      statusLinhaBase('Lista de Produtos',A.dados.produtos.length,A.prodDataImport)+
+      statusLinhaBase('Saldo de Estoque',A.dados.saldo.length,A.saldoDataImport)+
+      statusLinhaBase('Endereçamento (ZWM)',A.dados.zwm.length,A.zwmDataImport)+
+    '</div>'+
+    (faltaBase?'<button class="btn bsm bfl" style="margin-top:10px" onclick="irParaImportarGeral()">📥 Ir para Importar do Inventário Geral</button>':'<div style="font-size:11px;color:var(--gr);margin-top:6px">✅ Tudo certo — essas bases já estão carregadas nesta sessão.</div>')+
+    '</div>'+
     (movVenc?'<div class="prod-expiry-err">⛔ Movimentação com '+movDias+' dias — vencida! Reimporte (ciclo de 30 dias) pra manter a classificação atualizada.</div>':(movDias!=null&&movDias>20?'<div class="prod-expiry-warn">⚠️ Movimentação com '+movDias+' dias (validade: 30 dias). Considere reimportar em breve.</div>':''))+
     (A.ciclico.movDataImport?'<div class="alert ao">✅ Última importação: '+new Date(parseInt(A.ciclico.movDataImport)).toLocaleString('pt-BR')+'</div>':'')+
-    '<div class="alert ai" style="line-height:1.6">ℹ️ <strong>Como tirar o relatório no SAP:</strong> transação <strong>MB51</strong> (Lista de documentos do material)<br>'+
-    'Filtros: <strong>Centro = 1410</strong> · <strong>Tipo de movimento = 261</strong> · <strong>Intervalo de data</strong> = período que você quer refletir (recomendado: últimos 30 dias)</div>'+
+    '<div class="alert ai">ℹ️<div style="line-height:1.6">'+
+      '<strong>Como tirar o relatório no SAP:</strong> transação <strong>MB51</strong> (Lista de documentos do material)<br>'+
+      'Filtros: <strong>Centro = 1410</strong> · <strong>Tipo de movimento = 261</strong> · <strong>Intervalo de data</strong> = período que você quer refletir (recomendado: últimos 30 dias)'+
+    '</div></div>'+
     '<div class="card"><div class="ctit" style="margin-bottom:12px">Extrato de Movimentação</div>'+
     '<div class="uz"><input type="file" accept=".xlsx,.xls,.csv" onchange="upFCiclo(event)">'+
     '<div class="ui">🔄</div><div class="ul">Lista_de_documentos_do_material.xlsx</div><div class="uh">Material · Qtd. UM registro · Data de lançamento</div></div>'+
@@ -1171,6 +1211,7 @@ function hCImportar(){
     '<button class="btn bp bfl" id="btn-confirmar-mov" onclick="confirmarImportMov()" disabled>✅ Confirmar importação</button>';
 }
 function dCImportar(){}
+window['irParaImportarGeral']=irParaImportarGeral;
 
 async function carregarParametrosCiclico(){
   if(!SB)return;
@@ -1292,17 +1333,25 @@ window['calcularClassificacaoCiclica']=calcularClassificacaoCiclica;
 
 // ── IMPORTAÇÃO ──
 let LD={p:false,s:false,z:false,m:false};
-function hImp(){
+function hImportarBases(){
   const cached=localStorage.getItem('ic_dados_ts');
   const cachedAge=cached?Math.round((Date.now()-parseInt(cached))/36e5)+'h atrás':'';
-
-  const mv=checkMovVenc();
   const prodVenc=A.prodDataImport&&(Date.now()-parseInt(A.prodDataImport))>DIAS*864e5;
   const prodDias=A.prodDataImport?Math.floor((Date.now()-parseInt(A.prodDataImport))/(864e5)):null;
-  return`<div class="stit">Importar dados</div>
-<div class="ssub">Upload das planilhas SAP. Dados ficam no navegador.</div>
+  try{A.ciclico.movDataImport=localStorage.getItem('ic_ciclico_mov_ts')||A.ciclico.movDataImport||null;}catch(e){}
+  var movVenc=checkMovCicloVenc();
+  var movDias=A.ciclico.movDataImport?Math.floor((Date.now()-parseInt(A.ciclico.movDataImport))/864e5):null;
+  return`<div class="stit">Importar Bases</div>
+<div class="ssub">Todas as planilhas usadas pelo Inventário Geral e pelo Inventário Cíclico ficam aqui, num lugar só.</div>
+<div class="card" style="background:var(--g50)"><div class="ctit" style="margin-bottom:10px">O que cada base alimenta</div>
+<div style="font-size:12px;color:var(--g600);line-height:1.9">
+📄 <strong>Lista de Produtos</strong> — custo/preço de cada SKU · usada nos <strong>dois</strong> inventários<br>
+📦 <strong>Saldo de Estoque</strong> — quantidade atual por depósito · usada nos <strong>dois</strong> inventários<br>
+🗺️ <strong>Endereçamento (ZWM)</strong> — localização física dos SKUs · usada nos <strong>dois</strong> inventários<br>
+🔄 <strong>Movimentação (MB51)</strong> — atividade de saída/entrada · usada só no <strong>Inventário Cíclico</strong>, pra classificação ABC dupla
+</div></div>
 ${prodVenc?`<div class="prod-expiry-err">⛔ Lista de produtos com ${prodDias} dias — vencida! Reimporte para manter acuracidade da classificação ABC.</div>`:(prodDias!=null&&prodDias>20?`<div class="prod-expiry-warn">⚠️ Lista de produtos com ${prodDias} dias (validade: 30 dias). Considere reimportar em breve.</div>`:'')}
-<div class="alert ai">ℹ️ Após carregar as planilhas, clique em <strong>Processar e Classificar</strong>.</div>
+<div class="alert ai">ℹ️ Após carregar as 3 planilhas abaixo, clique em <strong>Processar e Classificar</strong>.</div>
 ${A.dados.skus.length?`<div class="alert ao">✅ Dados em memória: <strong>${A.dados.skus.length} SKUs</strong> processados ${cachedAge?'('+cachedAge+')':''}. Re-importe apenas se houver atualização.</div>`:''}
 <div class="card"><div class="ctit" style="margin-bottom:12px">1 · Lista de Produtos</div>
 <div id="ts-p">${A.prodDataImport?`<div style="font-size:10px;color:#9A8270;margin-bottom:8px;font-weight:600">🕐 Última importação: ${new Date(parseInt(A.prodDataImport)).toLocaleString('pt-BR')}</div>`:(A.dados.produtos&&A.dados.produtos.length?`<div style="font-size:10px;color:#9A8270;margin-bottom:8px;font-weight:600">🕐 ${A.dados.produtos.length} produtos carregados (data não registrada)</div>`:'')}</div>
@@ -1320,7 +1369,21 @@ ${A.dados.skus.length?`<div class="alert ao">✅ Dados em memória: <strong>${A.
 
 <div class="ld" id="ldim"><div class="sp2"></div>Processando...</div>
 <button class="btn bp bfl" id="bproc" onclick="processar()" disabled>⚡ Processar e Classificar</button>
-<div id="resumo" style="display:none"></div>`;
+<div id="resumo" style="display:none"></div>
+
+<div style="border-top:2px solid var(--g200);margin:28px 0"></div>
+<div class="ctit" style="margin-bottom:6px;font-size:16px">4 · Movimentação (só Cíclico)</div>
+${movVenc?`<div class="prod-expiry-err">⛔ Movimentação com ${movDias} dias — vencida! Reimporte (ciclo de 30 dias) pra manter a classificação atualizada.</div>`:(movDias!=null&&movDias>20?`<div class="prod-expiry-warn">⚠️ Movimentação com ${movDias} dias (validade: 30 dias). Considere reimportar em breve.</div>`:'')}
+${A.ciclico.movDataImport?`<div class="alert ao">✅ Última importação: ${new Date(parseInt(A.ciclico.movDataImport)).toLocaleString('pt-BR')}</div>`:''}
+<div class="alert ai">ℹ️<div style="line-height:1.6">
+<strong>Como tirar o relatório no SAP:</strong> transação <strong>MB51</strong> (Lista de documentos do material)<br>
+Filtros: <strong>Centro = 1410</strong> · <strong>Tipo de movimento = 261</strong> · <strong>Intervalo de data</strong> = período que você quer refletir (recomendado: últimos 30 dias)
+</div></div>
+<div class="card"><div class="ctit" style="margin-bottom:12px">Extrato de Movimentação</div>
+<div class="uz"><input type="file" accept=".xlsx,.xls,.csv" onchange="upFCiclo(event)">
+<div class="ui">🔄</div><div class="ul">Lista_de_documentos_do_material.xlsx</div><div class="uh">Material · Qtd. UM registro · Data de lançamento</div></div>
+<div id="st-cmov" style="margin-top:10px;font-size:12px;color:var(--g500)"></div></div>
+<button class="btn bp bfl" id="btn-confirmar-mov" onclick="confirmarImportMov()" disabled>✅ Confirmar importação de Movimentação</button>`;
 }
 function checkMovVenc(){return A.movDataImport&&(Date.now()-parseInt(A.movDataImport))>DIAS*864e5;}
 function dov(e){e.preventDefault();e.currentTarget.classList.add('dv');}
@@ -5609,7 +5672,7 @@ async function sbCarregarSessao(user){
     }
     var perfil=r.data.perfil;
     var abasPorPerfil={
-      admin:['importacao','inv_geral','central','confronto','torre','gerenciar','c_importar','c_classificacao','c_agenda','c_contagem','c_divergencias','c_indicadores','c_config'],
+      admin:['importacao','inv_geral','central','confronto','torre','gerenciar','c_classificacao','c_agenda','c_contagem','c_divergencias','c_indicadores','c_config'],
       gestor:['importacao','inv_geral','central','confronto','torre'],
       analista:['importacao','inv_geral','confronto','torre'],
       auditor:['inv_geral','confronto','torre'],
@@ -6099,7 +6162,7 @@ async function sbCarregarOperadoresIG(forcar){
 }
 
 function hGerNovo(){
-  return '<div class="stit">👥 Gerenciar Acessos</div>'+
+  return '<div class="stit">⚙️ Painel de Acessos</div>'+
     '<div class="ssub" style="margin-bottom:16px">Usuários, perfis e permissões. Criação de novos usuários é feita no painel do Supabase.</div>'+
     '<div id="ger-content"><div style="text-align:center;padding:40px;color:var(--g400)">⏳ Carregando usuários...</div></div>';
 }
@@ -6255,7 +6318,7 @@ function gerAbrirAcessos(id){
   if(!p)return;
   __acessosAlvo=p;
   var abasPorPerfil={
-    admin:['importacao','inv_geral','central','confronto','torre','gerenciar','c_importar','c_classificacao','c_agenda','c_contagem','c_divergencias','c_indicadores','c_config'],
+    admin:['importacao','inv_geral','central','confronto','torre','gerenciar','c_classificacao','c_agenda','c_contagem','c_divergencias','c_indicadores','c_config'],
     gestor:['importacao','inv_geral','central','confronto','torre'],
     analista:['importacao','inv_geral','confronto','torre'],
     auditor:['inv_geral','confronto','torre'],
@@ -6266,13 +6329,12 @@ function gerAbrirAcessos(id){
   var temCustom=p.abas_customizadas&&p.abas_customizadas.length>0;
   
   var abasInfo=[
-    {id:'importacao',nome:'📥 Importar',desc:'Upload de planilhas'},
+    {id:'importacao',nome:'📥 Importar Bases',desc:'Produtos, Saldo, ZWM e Movimentação'},
     {id:'inv_geral',nome:'🏭 Inv. Geral',desc:'Mapa e contagem'},
     {id:'central',nome:'🗼 Central',desc:'Painel gerencial'},
     {id:'confronto',nome:'🔍 Confronto',desc:'1410, QLL, Rodolook'},
     {id:'torre',nome:'🏛️ Torre de Controle',desc:'Histórico e KPIs'},
-    {id:'gerenciar',nome:'👥 Gerenciar',desc:'Acessos e usuários'},
-    {id:'c_importar',nome:'🔄📥 Cíclico · Importar',desc:'Movimentação mensal'},
+    {id:'gerenciar',nome:'⚙️ Painel de Acessos',desc:'Usuários, perfis e permissões'},
     {id:'c_classificacao',nome:'🔄🔠 Cíclico · Classificação',desc:'Curva ABC dupla e regras'},
     {id:'c_agenda',nome:'🔄🗓️ Cíclico · Agenda do dia',desc:'Sugestão e confirmação diária'},
     {id:'c_contagem',nome:'🔄📋 Cíclico · Contagem',desc:'Bipagem do ciclo'},
