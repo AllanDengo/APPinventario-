@@ -1124,7 +1124,9 @@ function parseMovCiclico(rows,fn){
   var agr={}; var minDt=null,maxDt=null;
   rows.forEach(function(r){
     var sk=SEC.k(r[cS]); if(!sk)return;
-    var q=Math.abs(SEC.n(r[cQ]));
+    // Movimentações de saída (MB51 tipo 261) vêm negativas — pega o módulo do valor bruto
+    var bruto=parseFloat(r[cQ]); if(isNaN(bruto))bruto=0;
+    var q=Math.abs(bruto);
     if(!agr[sk])agr[sk]={desc:SEC.t(r[cD]||''),qtd:0};
     agr[sk].qtd+=q;
     if(cDt){
