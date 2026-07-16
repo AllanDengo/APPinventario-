@@ -729,7 +729,8 @@ let A={
     mov:[],
     movDataImport:null,
     parametros:{janela_valor_meses:12,janela_movimentacao_meses:6,limite_recontagem_auto:10000},
-    classificacao:[]
+    classificacao:[],
+    _agendaHoje:[]
   },
   dados:{produtos:[],saldo:[],zwm:[],mov:[],skus:[],saldoConfronto:[],parceiros:{}},
   movDataImport:null,
@@ -992,6 +993,7 @@ function goTab(id){
   else if(id==='gerenciar'){c.innerHTML=hGerNovo();dGerNovo();}
   else if(id==='central'){c.innerHTML=hCentral();dCentral();}
   else if(id==='c_classificacao'){c.innerHTML=hCClassificacao();dCClassificacao();}
+  else if(id==='c_agenda'){c.innerHTML=hCAgenda();dCAgenda();}
   else if(id.indexOf('c_')===0){c.innerHTML=hCicloPlaceholder(id);}
 }
 
@@ -1333,6 +1335,179 @@ async function dCClassificacao(){
   var lim=document.getElementById('lim-recontagem'); if(lim)lim.value=A.ciclico.parametros.limite_recontagem_auto||10000;
   renderResultadoClassificacao();
 }
+
+// ══════════════════════════════════════════
+// CÍCLICO — BLOCO 5: Agenda do dia
+// ══════════════════════════════════════════
+
+async function ciclicoGerarAgendaHoje(){
+  var btn=document.getElementById('btn-gerar-agenda');
+  if(btn){btn.disabled=true;btn.textContent='Gerando...';}
+  try{
+    var rClass=await SB.from('ciclico_classificacao').select('*');
+    if(rClass.error){alert('Erro: '+rClass.error.message); if(btn){btn.disabled=false;btn.textContent='🔄 Gerar agenda de hoje';} return;}
+    var classificacao=rClass.data||[];
+    if(!classificacao.length){alert('Nenhuma classificação encontrada. Calcule a classificação primeiro, na aba Classificação.'); if(btn){btn.disabled=false;btn.textContent='🔄 Gerar agenda de hoje';} return;}
+
+    // Última contagem REALIZADA por SKU (histórico da própria agenda)
+    var rHist=await SB.from('ciclico_agenda').select('sku,data').eq('status','realizado');
+    var ultimaContagem={};
+    (rHist.data||[]).forEach(function(h){
+      if(!ultimaContagem[h.sku]||h.data>ultimaContagem[h.sku])ultimaContagem[h.sku]=h.data;
+    });
+
+    var hoje=new Date(); hoje.setHours(0,0,0,0);
+    var hojeStr=hoje.toISOString().slice(0,10);
+
+    // SKUs que já estão na agenda de HOJE (evita duplicar)
+    var rHoje=await SB.from('ciclico_agenda').select('sku').eq('data',hojeStr);
+    var jaNaAgendaHoje={}; (rHoje.data||[]).forEach(function(a){jaNaAgendaHoje[a.sku]=true;});
+
+    var vencidos=[];
+    classificacao.forEach(function(c){
+      if(jaNaAgendaHoje[c.sku])return;
+      var freq=c.frequencia_dias_aplicada||90;
+      var baseData=ultimaContagem[c.sku]||null;
+      if(!baseData){
+        // Nunca contado no Cíclico ainda
+        if(c.classe_valor==='A'){ vencidos.push(c); return; } // alta prioridade entra direto
+        baseData=(c.calculado_em||'').slice(0,10); // B/C esperam o ciclo normal a partir da classificação
+        if(!baseData)return;
+      }
+      var dtBase=new Date(baseData+'T00:00:00');
+      dtBase.setDate(dtBase.getDate()+freq);
+      if(dtBase<=hoje)vencidos.push(c);
+    });
+
+    if(!vencidos.length){
+      alert('✅ Nenhum SKU vencido pra hoje. Agenda em dia!');
+      if(btn){btn.disabled=false;btn.textContent='🔄 Gerar agenda de hoje';}
+      return;
+    }
+
+    var payload=vencidos.map(function(c){
+      return {data:hojeStr,sku:c.sku,origem:'automatica',status:'sugerido',criado_por:A.sessao.id};
+    });
+    var r=await SB.from('ciclico_agenda').insert(payload);
+    if(r.error){alert('Erro ao gerar agenda: '+r.error.message); if(btn){btn.disabled=false;btn.textContent='🔄 Gerar agenda de hoje';} return;}
+    addLog('Gerou agenda cíclica',hojeStr+' · '+payload.length+' SKUs');
+    dCAgenda();
+  }catch(e){ alert('Erro: '+e.message); }
+  if(btn){btn.disabled=false;btn.textContent='🔄 Gerar agenda de hoje';}
+}
+
+async function ciclicoIncluirManual(){
+  var skuIn=document.getElementById('manual-sku');
+  var motivoIn=document.getElementById('manual-motivo');
+  var sku=SEC.k((skuIn&&skuIn.value)||'');
+  var motivo=(motivoIn&&motivoIn.value)||'';
+  if(!sku){alert('Informe o SKU.');return;}
+  if(!motivo){alert('Selecione o motivo.');return;}
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var hojeStr=hoje.toISOString().slice(0,10);
+  try{
+    var r=await SB.from('ciclico_agenda').insert({data:hojeStr,sku:sku,origem:'manual',motivo_manual:motivo,status:'confirmado',criado_por:A.sessao.id});
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    addLog('Incluiu SKU manual na agenda',sku+' · '+motivo);
+    if(skuIn)skuIn.value='';
+    if(motivoIn)motivoIn.value='';
+    dCAgenda();
+  }catch(e){alert('Erro: '+e.message);}
+}
+
+async function ciclicoConfirmarSelecionados(){
+  var checks=document.querySelectorAll('.chk-agenda:checked');
+  var ids=Array.prototype.slice.call(checks).map(function(c){return c.getAttribute('data-id');});
+  if(!ids.length){alert('Nenhum item selecionado.');return;}
+  try{
+    var r=await SB.from('ciclico_agenda').update({status:'confirmado'}).in('id',ids);
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    addLog('Confirmou agenda cíclica',ids.length+' SKUs');
+    dCAgenda();
+  }catch(e){alert('Erro: '+e.message);}
+}
+
+var MOTIVO_LABEL={producao:'Solicitação da produção',suspeita:'Suspeita de divergência',auditoria:'Auditoria',lideranca:'Solicitação da liderança'};
+
+function hCAgenda(){
+  var hoje=new Date().toLocaleDateString('pt-BR');
+  return '<div class="stit">Cíclico · Agenda do dia</div>'+
+    '<div class="ssub">Lista de SKUs que venceram a contagem hoje ('+hoje+'), baseada na classificação ABC dupla.</div>'+
+    '<button class="btn bp bfl" id="btn-gerar-agenda" onclick="ciclicoGerarAgendaHoje()">🔄 Gerar agenda de hoje</button>'+
+    '<div class="card mt16"><div class="ctit" style="margin-bottom:12px">➕ Incluir SKU manualmente</div>'+
+    '<div class="fr" style="gap:10px;flex-wrap:wrap">'+
+      '<input id="manual-sku" class="fi" placeholder="SKU" style="max-width:140px">'+
+      '<select id="manual-motivo" class="fi" style="max-width:230px"><option value="">Motivo...</option>'+
+        '<option value="producao">Solicitação da produção</option>'+
+        '<option value="suspeita">Suspeita de divergência</option>'+
+        '<option value="auditoria">Auditoria</option>'+
+        '<option value="lideranca">Solicitação da liderança</option>'+
+      '</select>'+
+      '<button class="btn bsm" onclick="ciclicoIncluirManual()">Incluir</button>'+
+    '</div></div>'+
+    '<div id="agenda-lista" class="mt16"></div>';
+}
+
+async function dCAgenda(){
+  var el=document.getElementById('agenda-lista');
+  if(!el)return;
+  el.innerHTML='<div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando agenda...</div>';
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var hojeStr=hoje.toISOString().slice(0,10);
+  try{
+    var r=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr);
+    if(r.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+r.error.message+'</div>'; return; }
+    A.ciclico._agendaHoje=r.data||[];
+    renderAgendaLista();
+  }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
+}
+
+function renderAgendaLista(){
+  var el=document.getElementById('agenda-lista');
+  if(!el)return;
+  var lista=A.ciclico._agendaHoje||[];
+  if(!lista.length){ el.innerHTML='<div class="card" style="text-align:center;color:var(--g500)">Nenhum item na agenda de hoje. Clique em "Gerar agenda de hoje".</div>'; return; }
+  var mc={}; A.dados.skus.forEach(function(s){mc[s.sku]=s;});
+  var pendentes=lista.filter(function(a){return a.status==='sugerido';});
+  var confirmados=lista.filter(function(a){return a.status==='confirmado'||a.status==='realizado';});
+
+  var html='<div class="card"><div class="ctit" style="margin-bottom:10px">Sugeridos hoje — '+pendentes.length+' pendente(s) de confirmação</div>';
+  if(pendentes.length){
+    html+='<div style="display:flex;flex-direction:column;gap:6px">';
+    pendentes.forEach(function(a){
+      var desc=(mc[a.sku]&&mc[a.sku].desc)||'';
+      html+='<label style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--g200);border-radius:8px;cursor:pointer">'+
+        '<input type="checkbox" class="chk-agenda" data-id="'+a.id+'" checked>'+
+        '<span style="font-weight:700;color:var(--cacau);min-width:80px">'+a.sku+'</span>'+
+        '<span style="color:var(--g500);font-size:12px;flex:1">'+SEC.t(desc)+'</span>'+
+      '</label>';
+    });
+    html+='</div><button class="btn bp bsm" style="margin-top:12px" onclick="ciclicoConfirmarSelecionados()">✅ Confirmar selecionados pra hoje</button>';
+  } else {
+    html+='<div style="color:var(--g500);font-size:12px">Nenhum pendente.</div>';
+  }
+  html+='</div>';
+
+  html+='<div class="card mt16"><div class="ctit" style="margin-bottom:10px">Confirmados hoje — '+confirmados.length+'</div>';
+  if(confirmados.length){
+    html+='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px">';
+    confirmados.forEach(function(a){
+      var desc=(mc[a.sku]&&mc[a.sku].desc)||'';
+      var origemTxt=a.origem==='manual'?('✋ manual — '+(MOTIVO_LABEL[a.motivo_manual]||a.motivo_manual||'')):'🔄 automático';
+      html+='<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--g100)"><span style="font-weight:700;min-width:80px">'+a.sku+'</span><span style="color:var(--g500);flex:1">'+SEC.t(desc)+'</span><span style="color:var(--g400);font-size:11px">'+origemTxt+'</span></div>';
+    });
+    html+='</div>';
+  } else {
+    html+='<div style="color:var(--g500);font-size:12px">Nenhum confirmado ainda.</div>';
+  }
+  html+='</div>';
+
+  el.innerHTML=html;
+}
+
+window['ciclicoGerarAgendaHoje']=ciclicoGerarAgendaHoje;
+window['ciclicoIncluirManual']=ciclicoIncluirManual;
+window['ciclicoConfirmarSelecionados']=ciclicoConfirmarSelecionados;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
