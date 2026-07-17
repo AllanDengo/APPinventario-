@@ -1001,6 +1001,8 @@ function goTab(id){
   else if(id==='c_agenda'){c.innerHTML=hCAgenda();dCAgenda();}
   else if(id==='c_contagem'){c.innerHTML=hCContagem();dCContagem();}
   else if(id==='c_divergencias'){c.innerHTML=hCDivergencias();dCDivergencias();}
+  else if(id==='c_indicadores'){c.innerHTML=hCIndicadores();dCIndicadores();}
+  else if(id==='c_config'){c.innerHTML=hCConfig();dCConfig();}
   else if(id.indexOf('c_')===0){c.innerHTML=hCicloPlaceholder(id);}
 }
 
@@ -1324,22 +1326,12 @@ function hCClassificacao(){
   return '<div class="stit">Cíclico · Classificação ABC dupla</div>'+
     '<div class="ssub">Cruza Valor em estoque × Movimentação pra classificar cada SKU (ex: AC) e definir a frequência de contagem.</div>'+
     (A.dados.skus.length?'':'<div class="alert ai">⚠️ Nenhum dado processado. Importe e clique em "Processar e Classificar" na aba Importar do Inventário Geral primeiro.</div>')+
-    '<div class="card"><div class="ctit" style="margin-bottom:12px">Parâmetros</div>'+
-    '<div class="fr" style="gap:16px;flex-wrap:wrap">'+
-      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Janela de Movimentação (meses)</label><input type="number" id="jm-meses" class="fi" style="max-width:100px" value="'+(p.janela_movimentacao_meses||6)+'"></div>'+
-      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Janela de Valor (meses)</label><input type="number" id="jv-meses" class="fi" style="max-width:100px" value="'+(p.janela_valor_meses||12)+'"></div>'+
-      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Limite recontagem automática (R$)</label><input type="number" id="lim-recontagem" class="fi" style="max-width:140px" value="'+(p.limite_recontagem_auto||10000)+'"></div>'+
-    '</div>'+
-    '<button class="btn bsm" style="margin-top:12px" onclick="salvarParametrosCiclico()">💾 Salvar parâmetros</button>'+
-    '</div>'+
+    '<div class="alert ai">ℹ️ Janela de movimentação: <strong>'+(p.janela_movimentacao_meses||6)+' meses</strong> · Janela de valor: <strong>'+(p.janela_valor_meses||12)+' meses</strong> · Limite recontagem automática: <strong>R$ '+fv(p.limite_recontagem_auto||10000)+'</strong>. Pra mudar, vai em <strong>Config</strong>.</div>'+
     '<button class="btn bp bfl" id="btn-calc-classificacao" onclick="calcularClassificacaoCiclica()">⚡ Calcular classificação</button>'+
     '<div id="resultado-classificacao"></div>';
 }
 async function dCClassificacao(){
   await carregarParametrosCiclico();
-  var jm=document.getElementById('jm-meses'); if(jm)jm.value=A.ciclico.parametros.janela_movimentacao_meses||6;
-  var jv=document.getElementById('jv-meses'); if(jv)jv.value=A.ciclico.parametros.janela_valor_meses||12;
-  var lim=document.getElementById('lim-recontagem'); if(lim)lim.value=A.ciclico.parametros.limite_recontagem_auto||10000;
   renderResultadoClassificacao();
 }
 
@@ -2053,8 +2045,8 @@ function hCDivergencias(){
   return '<div class="stit">Cíclico · Divergências</div>'+
     '<div class="ssub">Controle de quem pode liberar uma recontagem — nada volta pro operador sem passar por aqui.</div>'+
     '<div style="display:flex;gap:6px;margin-bottom:16px">'+
-      '<button onclick="ciclicoDivergSetAba(\'pendentes\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='pendentes'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">🕐 Aguardando aprovação</button>'+
-      '<button onclick="ciclicoDivergSetAba(\'confirmadas\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='confirmadas'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">⚠️ Divergência confirmada</button>'+
+      '<button onclick="ciclicoDivergSetAba(\'pendentes\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='pendentes'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">🕐 Em análise</button>'+
+      '<button onclick="ciclicoDivergSetAba(\'confirmadas\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='confirmadas'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">📋 Lançamento</button>'+
     '</div>'+
     '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
     (aba==='confirmadas'?(
@@ -2079,6 +2071,7 @@ function ciclicoDivergSetAba(aba){
 }
 
 async function dCDivergencias(){
+  ciclicoCarregarMotivos();
   var podeDecidir=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
   var aba=A.ciclico._divergAbaView||'pendentes';
   var statusAlvo=aba==='pendentes'?'pendente_aprovacao':'divergente';
@@ -2167,7 +2160,7 @@ function renderDivergenciasLista(podeDecidir,aba){
       '</div>'+
       (podeDecidir?
         '<div class="fr" style="gap:8px;flex-wrap:wrap">'+
-          '<button class="btn bs bsm" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'aprovado_sem_ajuste\')">✅ Aprovar sem ajuste</button>'+
+          '<button class="btn bs bsm" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'aprovado_sem_ajuste\')">✅ Aprovar</button>'+
           '<button class="btn bs bsm" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'terceira_contagem\')">🔁 '+(ehPendente?'Aprovar 2ª contagem':'Liberar nova contagem')+'</button>'+
           '<button class="btn bs bsm" style="color:var(--rd);border-color:var(--rd)" onclick="ciclicoDecidirDivergencia(\''+i.sku+'\',\'material_bloqueado\')">🔒 Material bloqueado</button>'+
         '</div>'
@@ -2176,8 +2169,8 @@ function renderDivergenciasLista(podeDecidir,aba){
   }).join('');
 }
 
-// Lista de motivos padrão pra aprovação de divergência — editável aqui por enquanto;
-// dá pra virar configurável na aba Config futuramente (adicionar/remover motivos).
+// Lista de motivos padrão — usada só como fallback se a tabela ciclico_motivos_aprovacao
+// vier vazia. A lista de verdade é editável na aba Config e carregada do Supabase.
 var MOTIVOS_APROVACAO_DIVERGENCIA=[
   'Erro de contagem confirmado (recontagem corrigiu)',
   'Erro de lançamento no sistema (saldo desatualizado)',
@@ -2189,13 +2182,24 @@ var MOTIVOS_APROVACAO_DIVERGENCIA=[
   'Outro (detalhar abaixo)'
 ];
 
+async function ciclicoCarregarMotivos(){
+  try{
+    var r=await SB.from('ciclico_motivos_aprovacao').select('texto').eq('ativo',true).order('ordem',{ascending:true});
+    if(!r.error&&r.data&&r.data.length){
+      MOTIVOS_APROVACAO_DIVERGENCIA.length=0;
+      r.data.forEach(function(m){MOTIVOS_APROVACAO_DIVERGENCIA.push(m.texto);});
+    }
+  }catch(e){ console.warn('ciclicoCarregarMotivos:',e); }
+}
+
 var __divergenciaAtual=null;
+
 
 function ciclicoDecidirDivergencia(sku,decisao){
   var item=(A.ciclico._divergenciasHoje||[]).find(function(i){return i.sku===sku;});
   if(!item)return;
   var ehPendente=(A.ciclico._divergAbaView||'pendentes')==='pendentes';
-  var lbl={aprovado_sem_ajuste:'Aprovar sem ajuste',terceira_contagem:(ehPendente?'Aprovar 2ª contagem':'Liberar nova contagem'),material_bloqueado:'Marcar material bloqueado'}[decisao];
+  var lbl={aprovado_sem_ajuste:'Aprovar',terceira_contagem:(ehPendente?'Aprovar 2ª contagem':'Liberar nova contagem'),material_bloqueado:'Marcar material bloqueado'}[decisao];
   __divergenciaAtual={sku:sku,decisao:decisao,item:item,lbl:lbl};
 
   var html='<div id="modal-motivo-divergencia" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px">'+
@@ -2229,7 +2233,7 @@ async function ciclicoConfirmarDecisaoDivergencia(){
     });
     if(rIns.error){ alert('Erro ao registrar decisão: '+rIns.error.message); return; }
 
-    var novoStatus=decisao==='terceira_contagem'?'aguardando_2a':'realizado';
+    var novoStatus=decisao==='terceira_contagem'?'aguardando_2a':(decisao==='material_bloqueado'?'bloqueado':'realizado');
     var updatePayload={status:novoStatus};
     if(decisao==='terceira_contagem'){
       var rBusca=await SB.from('ciclico_agenda').select('enderecos_status').eq('id',item.agendaId).single();
@@ -2345,6 +2349,299 @@ async function ciclicoExportarLancamento(){
   }catch(e){ alert('Erro ao gerar Excel: '+e.message); }
 }
 window['ciclicoExportarLancamento']=ciclicoExportarLancamento;
+
+// ══════════════════════════════════════════
+// CÍCLICO — INDICADORES
+// ══════════════════════════════════════════
+
+function ciclicoIntervaloPeriodo(){
+  var sel=document.getElementById('ind-periodo');
+  var periodo=sel?sel.value:'7d';
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var ini,fim;
+  if(periodo==='hoje'){ ini=new Date(hoje); fim=new Date(hoje); }
+  else if(periodo==='30d'){ fim=new Date(hoje); ini=new Date(hoje); ini.setDate(ini.getDate()-29); }
+  else if(periodo==='custom'){
+    var iniIn=document.getElementById('ind-data-ini'), fimIn=document.getElementById('ind-data-fim');
+    ini=iniIn&&iniIn.value?new Date(iniIn.value+'T00:00:00'):new Date(hoje);
+    fim=fimIn&&fimIn.value?new Date(fimIn.value+'T00:00:00'):new Date(hoje);
+  } else { fim=new Date(hoje); ini=new Date(hoje); ini.setDate(ini.getDate()-6); } // 7d default
+  return {iniStr:ini.toISOString().slice(0,10),fimStr:fim.toISOString().slice(0,10)};
+}
+
+function ciclicoIndPeriodoMudou(){
+  var sel=document.getElementById('ind-periodo');
+  var mostrar=sel&&sel.value==='custom';
+  var i1=document.getElementById('ind-data-ini'), i2=document.getElementById('ind-data-fim');
+  if(i1)i1.style.display=mostrar?'inline-block':'none';
+  if(i2)i2.style.display=mostrar?'inline-block':'none';
+  if(!mostrar)dCIndicadores();
+}
+window['ciclicoIndPeriodoMudou']=ciclicoIndPeriodoMudou;
+
+function hCIndicadores(){
+  var hoje=new Date().toISOString().slice(0,10);
+  return '<div class="stit">Cíclico · Indicadores</div>'+
+    '<div class="ssub">Acuracidade, impacto financeiro e produtividade do inventário cíclico.</div>'+
+    '<div class="card"><div class="fr" style="gap:10px;flex-wrap:wrap;align-items:center">'+
+      '<label class="fl" style="margin:0">Período:</label>'+
+      '<select class="fi" id="ind-periodo" style="max-width:200px" onchange="ciclicoIndPeriodoMudou()">'+
+        '<option value="hoje">Hoje</option>'+
+        '<option value="7d" selected>Últimos 7 dias</option>'+
+        '<option value="30d">Últimos 30 dias</option>'+
+        '<option value="custom">Personalizado</option>'+
+      '</select>'+
+      '<input type="date" id="ind-data-ini" class="fi" style="max-width:150px;display:none" value="'+hoje+'" onchange="dCIndicadores()">'+
+      '<input type="date" id="ind-data-fim" class="fi" style="max-width:150px;display:none" value="'+hoje+'" onchange="dCIndicadores()">'+
+      '<button class="btn bp bsm" onclick="dCIndicadores()">🔄 Atualizar</button>'+
+    '</div></div>'+
+    '<div id="ind-conteudo"><div style="text-align:center;padding:30px;color:var(--g400)">⏳ Carregando indicadores...</div></div>';
+}
+
+function ciclicoSvgDonut(parts,centroTxt,centroSub){
+  var total=parts.reduce(function(a,p){return a+p.v;},0);
+  if(!total)return '<div style="font-size:12px;color:var(--g500);text-align:center;padding:30px 0">Sem dados no período.</div>';
+  var R=62,r=38,cx=95,cy=95,ang=-Math.PI/2,svg='';
+  parts.filter(function(p){return p.v>0;}).forEach(function(p){
+    var frac=p.v/total,a2=ang+frac*2*Math.PI;
+    var x1=cx+R*Math.cos(ang),y1=cy+R*Math.sin(ang),x2=cx+R*Math.cos(a2),y2=cy+R*Math.sin(a2);
+    var xi2=cx+r*Math.cos(a2),yi2=cy+r*Math.sin(a2),xi1=cx+r*Math.cos(ang),yi1=cy+r*Math.sin(ang);
+    var big=frac>0.5?1:0;
+    svg+='<path d="M'+x1.toFixed(1)+','+y1.toFixed(1)+' A'+R+','+R+' 0 '+big+' 1 '+x2.toFixed(1)+','+y2.toFixed(1)+' L'+xi2.toFixed(1)+','+yi2.toFixed(1)+' A'+r+','+r+' 0 '+big+' 0 '+xi1.toFixed(1)+','+yi1.toFixed(1)+' Z" fill="'+p.c+'"/>';
+    ang=a2;
+  });
+  var leg=parts.map(function(p){return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:4px 0"><span style="width:10px;height:10px;border-radius:3px;background:'+p.c+';display:inline-block;flex-shrink:0"></span>'+p.l+' <b style="margin-left:auto">'+p.v+' ('+Math.round(p.v/total*100)+'%)</b></div>';}).join('');
+  return '<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">'+
+    '<svg viewBox="0 0 190 190" style="width:150px;height:150px;flex-shrink:0">'+svg+
+      '<text x="95" y="90" text-anchor="middle" font-size="20" font-weight="900" fill="var(--cacau)">'+centroTxt+'</text>'+
+      '<text x="95" y="105" text-anchor="middle" font-size="8" fill="var(--g500)">'+centroSub+'</text></svg>'+
+    '<div style="flex:1;min-width:160px">'+leg+'</div>'+
+  '</div>';
+}
+
+function ciclicoSvgBarras(itens,corBarra){
+  if(!itens.length)return '<div style="font-size:12px;color:var(--g500);text-align:center;padding:20px 0">Sem dados no período.</div>';
+  var max=Math.max.apply(null,itens.map(function(i){return i.v;}));
+  return '<div style="display:flex;flex-direction:column;gap:8px">'+
+    itens.map(function(i){
+      var pct=max?Math.round(i.v/max*100):0;
+      return '<div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px"><span style="font-weight:700;color:var(--cacau)">'+i.l+'</span><span style="color:var(--g500)">'+i.v+'</span></div>'+
+        '<div style="height:8px;background:var(--g100);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+corBarra+'"></div></div></div>';
+    }).join('')+
+  '</div>';
+}
+
+async function dCIndicadores(){
+  var el=document.getElementById('ind-conteudo');
+  if(!el)return;
+  el.innerHTML='<div style="text-align:center;padding:30px;color:var(--g400)">⏳ Carregando indicadores...</div>';
+  var per=ciclicoIntervaloPeriodo();
+  var fimMaisUmDia=new Date(per.fimStr+'T00:00:00'); fimMaisUmDia.setDate(fimMaisUmDia.getDate()+1);
+  var fimTimestamp=fimMaisUmDia.toISOString();
+
+  try{
+    // ── Agenda no período (base pra acuracidade) ──
+    var rAg=await SB.from('ciclico_agenda').select('id,sku,status,data').gte('data',per.iniStr).lte('data',per.fimStr);
+    if(rAg.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rAg.error.message+'</div>'; return; }
+    var agenda=rAg.data||[];
+    var finalizados=agenda.filter(function(a){return ['realizado','divergente','bloqueado'].includes(a.status);});
+    var skusFinalizados=finalizados.map(function(a){return a.sku;});
+
+    // ── Contagens no período, pra saber quem precisou de 2ª rodada ──
+    var maxRoundPorSku={};
+    if(skusFinalizados.length){
+      var rC=await SB.from('contagens').select('sku,numero_contagem').in('sku',skusFinalizados).gte('criado_em',per.iniStr+'T00:00:00').lt('criado_em',fimTimestamp);
+      (rC.data||[]).forEach(function(c){ var n=c.numero_contagem||1; if(!maxRoundPorSku[c.sku]||n>maxRoundPorSku[c.sku])maxRoundPorSku[c.sku]=n; });
+    }
+
+    var bateuPrimeira=0,resolvidoDepois=0,divergenteAberto=0,bloqueado=0;
+    finalizados.forEach(function(a){
+      if(a.status==='divergente'){divergenteAberto++;return;}
+      if(a.status==='bloqueado'){bloqueado++;return;}
+      // realizado:
+      if((maxRoundPorSku[a.sku]||1)>=2)resolvidoDepois++; else bateuPrimeira++;
+    });
+    var totalFinal=bateuPrimeira+resolvidoDepois+divergenteAberto+bloqueado;
+    var acuraciaPrimeira=totalFinal?Math.round(bateuPrimeira/totalFinal*100):0;
+
+    // ── Impacto financeiro ──
+    var rDiv=await SB.from('ciclico_divergencias').select('*,ciclico_agenda!inner(impacto_financeiro,data)').gte('decidido_em',per.iniStr+'T00:00:00').lt('decidido_em',fimTimestamp);
+    var divergencias=(rDiv.error?[]:rDiv.data)||[];
+    var impactoSim=divergencias.filter(function(d){return d.ciclico_agenda&&d.ciclico_agenda.impacto_financeiro===true;});
+    var impactoNao=divergencias.filter(function(d){return d.ciclico_agenda&&d.ciclico_agenda.impacto_financeiro===false;});
+    var impactoNaoMarcado=divergencias.filter(function(d){return !d.ciclico_agenda||d.ciclico_agenda.impacto_financeiro==null;});
+    var somaImpacto=impactoSim.reduce(function(a,d){return a+Math.abs(d.diferenca_valor||0);},0);
+
+    // ── Produtividade por operador ──
+    var rProd=await SB.from('contagens').select('operador_nome,sku').gte('criado_em',per.iniStr+'T00:00:00').lt('criado_em',fimTimestamp);
+    var porOperador={};
+    (rProd.data||[]).forEach(function(c){
+      var op=c.operador_nome||'—';
+      if(!porOperador[op])porOperador[op]=new Set();
+      porOperador[op].add(c.sku);
+    });
+    var rankOperadores=Object.keys(porOperador).map(function(op){return {l:op,v:porOperador[op].size};}).sort(function(a,b){return b.v-a.v;}).slice(0,10);
+
+    // ── Ranking materiais mais divergentes ──
+    var contPorSku={};
+    divergencias.forEach(function(d){ contPorSku[d.sku]=(contPorSku[d.sku]||0)+1; });
+    var rankDivergentes=Object.keys(contPorSku).map(function(sku){return {l:sku,v:contPorSku[sku]};}).sort(function(a,b){return b.v-a.v;}).slice(0,10);
+
+    // ── Distribuição da curva (snapshot atual, não filtrado por período) ──
+    var rClass=await SB.from('ciclico_classificacao').select('classe_combinada');
+    var distClasse={};
+    (rClass.data||[]).forEach(function(c){ distClasse[c.classe_combinada]=(distClasse[c.classe_combinada]||0)+1; });
+    var ordemClasses=['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
+    var rankClasse=ordemClasses.filter(function(k){return distClasse[k];}).map(function(k){return {l:k,v:distClasse[k]};});
+
+    var html='';
+    html+='<div class="card"><div class="ctit" style="margin-bottom:10px">🎯 Acuracidade ('+per.iniStr.split('-').reverse().join('/')+' a '+per.fimStr.split('-').reverse().join('/')+')</div>'+
+      ciclicoSvgDonut([
+        {l:'Bateu de primeira',v:bateuPrimeira,c:'var(--gr)'},
+        {l:'Resolvido após 2ª/aprovação',v:resolvidoDepois,c:'var(--am)'},
+        {l:'Divergência em aberto',v:divergenteAberto,c:'var(--rd)'},
+        {l:'Material bloqueado',v:bloqueado,c:'var(--g400)'}
+      ],acuraciaPrimeira+'%','de primeira')+
+    '</div>';
+
+    html+='<div class="card mt16"><div class="ctit" style="margin-bottom:10px">💰 Impacto financeiro</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:12px">'+
+        '<div><div style="font-size:22px;font-weight:900;color:var(--rd)">R$ '+fv(somaImpacto)+'</div><div style="font-size:11px;color:var(--g500)">confirmado com impacto</div></div>'+
+        '<div><div style="font-size:22px;font-weight:900;color:var(--gr)">'+impactoSim.length+'</div><div style="font-size:11px;color:var(--g500)">com impacto (Sim)</div></div>'+
+        '<div><div style="font-size:22px;font-weight:900;color:var(--g500)">'+impactoNao.length+'</div><div style="font-size:11px;color:var(--g500)">sem impacto (Não)</div></div>'+
+        '<div><div style="font-size:22px;font-weight:900;color:var(--am)">'+impactoNaoMarcado.length+'</div><div style="font-size:11px;color:var(--g500)">não marcado</div></div>'+
+      '</div></div>';
+
+    html+='<div class="card mt16"><div class="ctit" style="margin-bottom:10px">🏃 Produtividade por operador (SKUs distintos contados)</div>'+
+      ciclicoSvgBarras(rankOperadores,'var(--ouro)')+
+    '</div>';
+
+    html+='<div class="card mt16"><div class="ctit" style="margin-bottom:10px">⚠️ Materiais mais divergentes no período</div>'+
+      ciclicoSvgBarras(rankDivergentes,'var(--rd)')+
+    '</div>';
+
+    html+='<div class="card mt16"><div class="ctit" style="margin-bottom:10px">🔠 Distribuição da curva ABC dupla (atual)</div>'+
+      ciclicoSvgBarras(rankClasse,'var(--cacau)')+
+    '</div>';
+
+    el.innerHTML=html;
+  }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
+}
+window['dCIndicadores']=dCIndicadores;
+
+// ══════════════════════════════════════════
+// CÍCLICO — CONFIG (parâmetros gerais + matriz de frequência + motivos)
+// ══════════════════════════════════════════
+
+function hCConfig(){
+  return '<div class="stit">Cíclico · Config</div>'+
+    '<div class="ssub">Parâmetros gerais, matriz de frequência de contagem e motivos de aprovação de divergência.</div>'+
+    '<div id="config-conteudo"><div style="text-align:center;padding:30px;color:var(--g400)">⏳ Carregando...</div></div>';
+}
+
+async function dCConfig(){
+  var el=document.getElementById('config-conteudo');
+  if(!el)return;
+  await carregarParametrosCiclico();
+  var p=A.ciclico.parametros;
+
+  var rMatriz=await SB.from('ciclico_regras_frequencia').select('*').order('classe_valor',{ascending:true}).order('classe_movimentacao',{ascending:true});
+  var matriz=rMatriz.data||[];
+
+  var rMotivos=await SB.from('ciclico_motivos_aprovacao').select('*').order('ordem',{ascending:true});
+  var motivos=rMotivos.data||[];
+
+  var html='<div class="card"><div class="ctit" style="margin-bottom:12px">⚙️ Parâmetros gerais</div>'+
+    '<div class="fr" style="gap:16px;flex-wrap:wrap">'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Janela de Movimentação (meses)</label><input type="number" id="jm-meses" class="fi" style="max-width:100px" value="'+(p.janela_movimentacao_meses||6)+'"></div>'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Janela de Valor (meses)</label><input type="number" id="jv-meses" class="fi" style="max-width:100px" value="'+(p.janela_valor_meses||12)+'"></div>'+
+      '<div><label style="font-size:12px;color:var(--g500);display:block;margin-bottom:4px">Limite recontagem automática (R$)</label><input type="number" id="lim-recontagem" class="fi" style="max-width:140px" value="'+(p.limite_recontagem_auto||10000)+'"></div>'+
+    '</div>'+
+    '<button class="btn bsm" style="margin-top:12px" onclick="salvarParametrosCiclico()">💾 Salvar parâmetros</button>'+
+  '</div>';
+
+  html+='<div class="card mt16"><div class="ctit" style="margin-bottom:6px">🔠 Matriz de frequência</div>'+
+    '<div class="ssub" style="margin:-4px 0 12px">Quantos dias entre uma contagem e outra, por combinação de classe (Valor × Movimentação).</div>'+
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>Classe Valor</th><th>Classe Movimentação</th><th>Combinada</th><th>Frequência (dias)</th></tr></thead><tbody>'+
+    matriz.map(function(m){
+      return '<tr><td>'+m.classe_valor+'</td><td>'+m.classe_movimentacao+'</td><td style="font-weight:700">'+m.classe_valor+m.classe_movimentacao+'</td>'+
+        '<td><input type="number" class="fi" style="max-width:90px" id="freq-'+m.id+'" value="'+m.frequencia_dias+'"></td></tr>';
+    }).join('')+
+    '</tbody></table></div>'+
+    '<button class="btn bsm" style="margin-top:12px" onclick="ciclicoSalvarMatriz()">💾 Salvar matriz</button>'+
+  '</div>';
+
+  html+='<div class="card mt16"><div class="ctit" style="margin-bottom:6px">📝 Motivos de aprovação de divergência</div>'+
+    '<div class="ssub" style="margin:-4px 0 12px">Lista que aparece no dropdown ao aprovar/decidir uma divergência na aba Divergências.</div>'+
+    '<div id="config-motivos-lista" style="display:flex;flex-direction:column;gap:6px">'+
+    motivos.map(function(m){
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--g200);border-radius:8px;opacity:'+(m.ativo?'1':'.5')+'">'+
+        '<span style="flex:1;font-size:12px">'+SEC.t(m.texto)+'</span>'+
+        '<button onclick="ciclicoToggleMotivo(\''+m.id+'\','+(!m.ativo)+')" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid var(--g300);background:var(--branco);color:var(--cacau);cursor:pointer">'+(m.ativo?'Desativar':'Ativar')+'</button>'+
+        '<button onclick="ciclicoRemoverMotivo(\''+m.id+'\')" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid var(--rd);background:var(--branco);color:var(--rd);cursor:pointer">Remover</button>'+
+      '</div>';
+    }).join('')+
+    '</div>'+
+    '<div class="fr" style="gap:8px;margin-top:12px">'+
+      '<input class="fi" id="novo-motivo" placeholder="Novo motivo..." style="flex:1">'+
+      '<button class="btn bp bsm" onclick="ciclicoAdicionarMotivo()">➕ Adicionar</button>'+
+    '</div>'+
+  '</div>';
+
+  el.innerHTML=html;
+}
+
+async function ciclicoSalvarMatriz(){
+  var rMatriz=await SB.from('ciclico_regras_frequencia').select('id');
+  var ids=(rMatriz.data||[]).map(function(m){return m.id;});
+  try{
+    for(var i=0;i<ids.length;i++){
+      var inp=document.getElementById('freq-'+ids[i]);
+      if(!inp)continue;
+      var val=parseInt(inp.value,10)||30;
+      await SB.from('ciclico_regras_frequencia').update({frequencia_dias:val}).eq('id',ids[i]);
+    }
+    addLog('Atualizou matriz de frequência cíclica','');
+    alert('✅ Matriz salva.');
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoSalvarMatriz']=ciclicoSalvarMatriz;
+
+async function ciclicoAdicionarMotivo(){
+  var inp=document.getElementById('novo-motivo');
+  var texto=(inp&&inp.value||'').trim();
+  if(!texto){alert('Digite o texto do motivo.');return;}
+  try{
+    var rMax=await SB.from('ciclico_motivos_aprovacao').select('ordem').order('ordem',{ascending:false}).limit(1);
+    var proxOrdem=(rMax.data&&rMax.data.length?rMax.data[0].ordem:0)+1;
+    var r=await SB.from('ciclico_motivos_aprovacao').insert({texto:texto,ordem:proxOrdem});
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    addLog('Adicionou motivo de aprovação cíclica',texto);
+    dCConfig();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoAdicionarMotivo']=ciclicoAdicionarMotivo;
+
+async function ciclicoToggleMotivo(id,novoValor){
+  try{
+    var r=await SB.from('ciclico_motivos_aprovacao').update({ativo:novoValor}).eq('id',id);
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    dCConfig();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoToggleMotivo']=ciclicoToggleMotivo;
+
+async function ciclicoRemoverMotivo(id){
+  if(!confirm('Remover esse motivo da lista? (não afeta decisões já registradas)'))return;
+  try{
+    var r=await SB.from('ciclico_motivos_aprovacao').delete().eq('id',id);
+    if(r.error){alert('Erro: '+r.error.message);return;}
+    addLog('Removeu motivo de aprovação cíclica',id);
+    dCConfig();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoRemoverMotivo']=ciclicoRemoverMotivo;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
