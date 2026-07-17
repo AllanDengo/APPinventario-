@@ -1593,8 +1593,43 @@ async function ciclicoGarantirSessaoHoje(){
 function hCContagem(){
   return '<div class="stit">Cíclico · Contagem</div>'+
     '<div class="ssub">SKUs confirmados na Agenda de hoje. Clique num item pra bipar.</div>'+
+    '<button class="btn bs bsm" style="margin-bottom:14px" onclick="ciclicoExportarExcel()">📥 Baixar Excel (SKU × Endereço)</button>'+
     '<div id="contagem-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
 }
+
+async function ciclicoExportarExcel(){
+  if(!A.ciclico._sessaoHojeId){ alert('Nenhuma sessão de hoje encontrada ainda.'); return; }
+  try{
+    var r=await SB.from('contagens').select('sku,descricao,endereco,lote,fab,val,qtd,numero_contagem,operador_nome').eq('sessao_id',A.ciclico._sessaoHojeId).order('sku',{ascending:true});
+    if(r.error){ alert('Erro ao buscar dados: '+r.error.message); return; }
+    var rows=r.data||[];
+    if(!rows.length){ alert('Nenhuma contagem registrada ainda hoje.'); return; }
+
+    // Agrupa por SKU + Endereço + Lote + Fab + Val (soma quantidade)
+    var agr={};
+    rows.forEach(function(c){
+      var chave=[c.sku,c.endereco||'',c.lote||'',c.fab||'',c.val||''].join('|');
+      if(!agr[chave]){
+        agr[chave]={SKU:c.sku,Descrição:c.descricao||'',Endereço:c.endereco||'(sem endereço)',Lote:c.lote||'',Fabricação:c.fab||'',Validade:c.val||'',Quantidade:0,'Nº Contagem':c.numero_contagem||1,Operador:c.operador_nome||''};
+      }
+      agr[chave].Quantidade+=parseFloat(c.qtd||0);
+    });
+    var linhas=Object.values(agr).sort(function(a,b){
+      if(a.SKU!==b.SKU)return a.SKU<b.SKU?-1:1;
+      return (a.Endereço||'')<(b.Endereço||'')?-1:1;
+    });
+
+    var ws=XLSX.utils.json_to_sheet(linhas,{header:['SKU','Descrição','Endereço','Lote','Fabricação','Validade','Quantidade','Nº Contagem','Operador']});
+    ws['!cols']=[{wch:10},{wch:32},{wch:16},{wch:14},{wch:12},{wch:12},{wch:11},{wch:11},{wch:20}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Contagem Cíclico');
+    var hoje=new Date();
+    var nomeArq='Contagem_Ciclico_'+hoje.toLocaleDateString('pt-BR').replace(/\//g,'-')+'.xlsx';
+    XLSX.writeFile(wb,nomeArq);
+    addLog('Exportou Excel da Contagem Cíclico',linhas.length+' linhas');
+  }catch(e){ alert('Erro ao gerar Excel: '+e.message); }
+}
+window['ciclicoExportarExcel']=ciclicoExportarExcel;
 
 async function dCContagem(){
   var el=document.getElementById('contagem-lista');
@@ -1940,7 +1975,7 @@ async function ciclicoFecharContagemSku(){
     var payload=(todosBipes.length?todosBipes:[{b:{lote:'',fab:'',val:'',qtd:0},endereco:(item.enderecos[0]&&item.enderecos[0].nome)||''}]).map(function(x){
       return {
         sessao_id:A.ciclico._sessaoHojeId, sku:item.sku, descricao:item.desc, um:'UN',
-        lote:x.b.lote||'', endereco:x.endereco||'', deposito:'',
+        lote:x.b.lote||'', fab:x.b.fab||'', val:x.b.val||'', endereco:x.endereco||'', deposito:'',
         qtd:x.b.qtd||0, operador_id:A.sessao.id, operador_nome:A.sessao.nome||'',
         numero_contagem:numeroContagem
       };
@@ -1999,7 +2034,10 @@ function hCDivergencias(){
       '<button onclick="ciclicoDivergSetAba(\'confirmadas\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='confirmadas'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">⚠️ Divergência confirmada</button>'+
     '</div>'+
     '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
-    '<div class="ctit" style="margin:24px 0 8px">📋 Histórico de decisões</div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 8px">'+
+      '<div class="ctit" style="margin:0">📋 Histórico de decisões</div>'+
+      '<button class="btn bs bsm" onclick="ciclicoExportarHistoricoDivergencias()">📥 Baixar Excel</button>'+
+    '</div>'+
     '<div id="divergencias-historico"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
 }
 
@@ -2142,6 +2180,26 @@ async function ciclicoDecidirDivergencia(sku,decisao){
 
 window['ciclicoDecidirDivergencia']=ciclicoDecidirDivergencia;
 window['ciclicoDivergSetAba']=ciclicoDivergSetAba;
+
+async function ciclicoExportarHistoricoDivergencias(){
+  try{
+    var r=await SB.from('ciclico_divergencias').select('*').order('decidido_em',{ascending:false});
+    if(r.error){ alert('Erro: '+r.error.message); return; }
+    var rows=r.data||[];
+    if(!rows.length){ alert('Nenhuma decisão registrada ainda.'); return; }
+    var lbl={aprovado_sem_ajuste:'Aprovado sem ajuste',terceira_contagem:'Liberou nova contagem',material_bloqueado:'Material bloqueado'};
+    var linhas=rows.map(function(r2){
+      return {SKU:r2.sku,'1ª contagem':r2.c1,'2ª contagem':r2.c2,'Saldo sistema':r2.saldo_sistema,'Diferença Qtd':r2.diferenca_qtd,'Diferença R$':r2.diferenca_valor,Decisão:lbl[r2.decisao]||r2.decisao,Motivo:r2.observacao,'Decidido em':new Date(r2.decidido_em).toLocaleString('pt-BR')};
+    });
+    var ws=XLSX.utils.json_to_sheet(linhas);
+    ws['!cols']=[{wch:10},{wch:12},{wch:12},{wch:13},{wch:13},{wch:13},{wch:20},{wch:40},{wch:18}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Divergências Cíclico');
+    XLSX.writeFile(wb,'Divergencias_Ciclico_'+new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')+'.xlsx');
+    addLog('Exportou Excel de Divergências Cíclico',linhas.length+' linhas');
+  }catch(e){ alert('Erro ao gerar Excel: '+e.message); }
+}
+window['ciclicoExportarHistoricoDivergencias']=ciclicoExportarHistoricoDivergencias;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
