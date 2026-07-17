@@ -734,7 +734,8 @@ let A={
     _sessaoHojeId:null,
     _itensContagem:[],
     _divergenciasHoje:[],
-    _divergAbaView:'pendentes'
+    _divergAbaView:'pendentes',
+    _lancamentoHoje:[]
   },
   dados:{produtos:[],saldo:[],zwm:[],mov:[],skus:[],saldoConfronto:[],parceiros:{}},
   movDataImport:null,
@@ -1737,7 +1738,7 @@ function renderContagemLista(){
   }
 
   var html='<div class="ctit" style="margin-bottom:8px">📋 Pendentes de contagem — '+pendentes.length+'</div>';
-  html+=pendentes.length?pendentes.map(function(i){return card(i,'var(--g200)','Saldo sistema: '+i.saldoEsperado,true);}).join(''):'<div style="color:var(--g500);font-size:12px;margin-bottom:16px">Nenhum.</div>';
+  html+=pendentes.length?pendentes.map(function(i){return card(i,'var(--g200)','',true);}).join(''):'<div style="color:var(--g500);font-size:12px;margin-bottom:16px">Nenhum.</div>';
 
   if(aguard2.length&&podeAprovar){
     html+='<div class="ctit" style="margin:20px 0 8px;color:var(--am)">🔄 Aguardando 2ª contagem (aprovada) — '+aguard2.length+'</div>';
@@ -2056,8 +2057,9 @@ function hCDivergencias(){
       '<button onclick="ciclicoDivergSetAba(\'confirmadas\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='confirmadas'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">⚠️ Divergência confirmada</button>'+
     '</div>'+
     '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
+    (aba==='confirmadas'?(
     '<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 8px">'+
-      '<div class="ctit" style="margin:0">📋 Relatório de Lançamento</div>'+
+      '<div class="ctit" style="margin:0">📋 Lançamento <span style="color:var(--gr)">✅</span></div>'+
       '<button class="btn bs bsm" onclick="ciclicoExportarLancamento()">📥 Baixar Excel (SKU · Lote · Qtd)</button>'+
     '</div>'+
     '<div class="ssub" style="margin:-6px 0 8px">Só entra aqui o que bateu automaticamente ou já foi aprovado — pronto pra lançar no sistema.</div>'+
@@ -2066,7 +2068,8 @@ function hCDivergencias(){
       '<div class="ctit" style="margin:0">📑 Histórico de decisões (auditoria)</div>'+
       '<button class="btn bs bsm" onclick="ciclicoExportarHistoricoDivergencias()">📥 Baixar Excel</button>'+
     '</div>'+
-    '<div id="divergencias-historico"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
+    '<div id="divergencias-historico"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'
+    ):'');
 }
 
 function ciclicoDivergSetAba(aba){
@@ -2173,14 +2176,51 @@ function renderDivergenciasLista(podeDecidir,aba){
   }).join('');
 }
 
-async function ciclicoDecidirDivergencia(sku,decisao){
+// Lista de motivos padrão pra aprovação de divergência — editável aqui por enquanto;
+// dá pra virar configurável na aba Config futuramente (adicionar/remover motivos).
+var MOTIVOS_APROVACAO_DIVERGENCIA=[
+  'Erro de contagem confirmado (recontagem corrigiu)',
+  'Erro de lançamento no sistema (saldo desatualizado)',
+  'Quebra/avaria não registrada',
+  'Perda por vencimento',
+  'Erro de unidade de medida',
+  'Transferência entre depósitos não registrada',
+  'Erro de leitura do código de barras',
+  'Outro (detalhar abaixo)'
+];
+
+var __divergenciaAtual=null;
+
+function ciclicoDecidirDivergencia(sku,decisao){
   var item=(A.ciclico._divergenciasHoje||[]).find(function(i){return i.sku===sku;});
   if(!item)return;
   var ehPendente=(A.ciclico._divergAbaView||'pendentes')==='pendentes';
   var lbl={aprovado_sem_ajuste:'Aprovar sem ajuste',terceira_contagem:(ehPendente?'Aprovar 2ª contagem':'Liberar nova contagem'),material_bloqueado:'Marcar material bloqueado'}[decisao];
-  var motivo=prompt('Motivo/justificativa pra "'+lbl+'" do SKU '+sku+' (obrigatório):');
-  if(!motivo||!motivo.trim()){ alert('É necessário informar um motivo.'); return; }
-  motivo=motivo.trim();
+  __divergenciaAtual={sku:sku,decisao:decisao,item:item,lbl:lbl};
+
+  var html='<div id="modal-motivo-divergencia" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px">'+
+    '<div style="background:var(--branco);border-radius:16px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)">'+
+      '<div style="font-size:16px;font-weight:800;color:var(--cacau);margin-bottom:4px">'+lbl+'</div>'+
+      '<div style="font-size:12px;color:var(--g500);margin-bottom:14px">SKU '+sku+' — justificativa obrigatória</div>'+
+      '<div class="fg"><label class="fl">Motivo</label><select class="fi" id="motivo-select">'+
+        MOTIVOS_APROVACAO_DIVERGENCIA.map(function(m){return '<option value="'+SEC.t(m)+'">'+SEC.t(m)+'</option>';}).join('')+
+      '</select></div>'+
+      '<div class="fg"><label class="fl">Detalhe (opcional, some junto no motivo)</label><textarea class="fi" id="motivo-detalhe" rows="2" placeholder="Complemento, se precisar"></textarea></div>'+
+      '<div class="fr" style="gap:8px;margin-top:8px">'+
+        '<button class="btn bs" onclick="document.getElementById(\'modal-motivo-divergencia\').remove()">Cancelar</button>'+
+        '<button class="btn bp bfl" onclick="ciclicoConfirmarDecisaoDivergencia()">✅ Confirmar</button>'+
+      '</div>'+
+    '</div></div>';
+  var wrap=document.createElement('div'); wrap.innerHTML=html; document.body.appendChild(wrap.firstChild);
+}
+
+async function ciclicoConfirmarDecisaoDivergencia(){
+  if(!__divergenciaAtual)return;
+  var sku=__divergenciaAtual.sku, decisao=__divergenciaAtual.decisao, item=__divergenciaAtual.item, lbl=__divergenciaAtual.lbl;
+  var sel=document.getElementById('motivo-select');
+  var det=document.getElementById('motivo-detalhe');
+  var motivo=(sel?sel.value:'')+((det&&det.value.trim())?(' — '+det.value.trim()):'');
+  if(!motivo.trim()){ alert('É necessário informar um motivo.'); return; }
   try{
     var rIns=await SB.from('ciclico_divergencias').insert({
       agenda_id:item.agendaId, sku:item.sku, c1:item.c1, c2:item.c2, saldo_sistema:item.saldo,
@@ -2202,12 +2242,15 @@ async function ciclicoDecidirDivergencia(sku,decisao){
     if(rUp.error){ alert('Decisão registrada, mas erro ao atualizar status: '+rUp.error.message); }
 
     addLog('Decisão de divergência cíclica',sku+' · '+lbl+' · '+motivo);
+    var m=document.getElementById('modal-motivo-divergencia'); if(m)m.remove();
+    __divergenciaAtual=null;
     alert('✅ Decisão registrada.');
     dCDivergencias();
   }catch(e){ alert('Erro: '+e.message); }
 }
 
 window['ciclicoDecidirDivergencia']=ciclicoDecidirDivergencia;
+window['ciclicoConfirmarDecisaoDivergencia']=ciclicoConfirmarDecisaoDivergencia;
 window['ciclicoDivergSetAba']=ciclicoDivergSetAba;
 
 async function ciclicoExportarHistoricoDivergencias(){
@@ -2234,9 +2277,10 @@ window['ciclicoExportarHistoricoDivergencias']=ciclicoExportarHistoricoDivergenc
 async function ciclicoBuscarLinhasLancamento(){
   var hoje=new Date(); hoje.setHours(0,0,0,0);
   var hojeStr=hoje.toISOString().slice(0,10);
-  var rAg=await SB.from('ciclico_agenda').select('sku').eq('data',hojeStr).eq('status','realizado');
+  var rAg=await SB.from('ciclico_agenda').select('id,sku,impacto_financeiro').eq('data',hojeStr).eq('status','realizado');
   if(rAg.error||!rAg.data||!rAg.data.length)return [];
   var skus=rAg.data.map(function(a){return a.sku;});
+  var agendaPorSku={}; rAg.data.forEach(function(a){agendaPorSku[a.sku]={id:a.id,impacto:a.impacto_financeiro};});
   if(!A.ciclico._sessaoHojeId)return [];
   var rC=await SB.from('contagens').select('sku,lote,qtd,numero_contagem').eq('sessao_id',A.ciclico._sessaoHojeId).in('sku',skus);
   if(rC.error||!rC.data)return [];
@@ -2247,7 +2291,7 @@ async function ciclicoBuscarLinhasLancamento(){
     var n=c.numero_contagem||1;
     if(n!==maxRound[c.sku])return; // só considera a rodada final de cada SKU
     var chave=c.sku+'|'+(c.lote||'');
-    if(!agr[chave])agr[chave]={SKU:c.sku,Lote:c.lote||'',Quantidade:0};
+    if(!agr[chave])agr[chave]={SKU:c.sku,Lote:c.lote||'',Quantidade:0,agendaId:agendaPorSku[c.sku]&&agendaPorSku[c.sku].id,impactoFinanceiro:agendaPorSku[c.sku]&&agendaPorSku[c.sku].impacto};
     agr[chave].Quantidade+=parseFloat(c.qtd||0);
   });
   return Object.values(agr).sort(function(a,b){return a.SKU<b.SKU?-1:(a.SKU>b.SKU?1:0);});
@@ -2258,20 +2302,42 @@ async function carregarRelatorioLancamentoUI(){
   if(!el)return;
   try{
     var linhas=await ciclicoBuscarLinhasLancamento();
+    A.ciclico._lancamentoHoje=linhas;
     if(!linhas.length){ el.innerHTML='<div style="color:var(--g500);font-size:12px">Nenhum SKU pronto pra lançamento ainda hoje.</div>'; return; }
     el.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
-      '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Lote</th><th>Quantidade</th></tr></thead><tbody>'+
-      linhas.map(function(l){return '<tr><td style="font-weight:700">'+l.SKU+'</td><td>'+(l.Lote||'—')+'</td><td>'+l.Quantidade+'</td></tr>';}).join('')+
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Lote</th><th>Quantidade</th><th>Impacto financeiro?</th></tr></thead><tbody>'+
+      linhas.map(function(l,idx){
+        var imp=l.impactoFinanceiro;
+        return '<tr><td style="font-weight:700">'+l.SKU+'</td><td>'+(l.Lote||'—')+'</td><td>'+l.Quantidade+'</td>'+
+          '<td><div class="fr" style="gap:4px">'+
+            '<button onclick="ciclicoMarcarImpactoFinanceiro(\''+l.agendaId+'\',true)" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1.5px solid '+(imp===true?'var(--rd)':'var(--g200)')+';background:'+(imp===true?'#FBEAEA':'var(--branco)')+';color:'+(imp===true?'var(--rd)':'var(--g500)')+';font-weight:700;cursor:pointer">Sim</button>'+
+            '<button onclick="ciclicoMarcarImpactoFinanceiro(\''+l.agendaId+'\',false)" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1.5px solid '+(imp===false?'var(--gr)':'var(--g200)')+';background:'+(imp===false?'#EBF5EB':'var(--branco)')+';color:'+(imp===false?'var(--gr)':'var(--g500)')+';font-weight:700;cursor:pointer">Não</button>'+
+            (imp==null?'<span style="font-size:10px;color:var(--am);align-self:center;margin-left:4px">⚠️ não marcado</span>':'')+
+          '</div></td></tr>';
+      }).join('')+
       '</tbody></table></div>';
   }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
 }
+
+async function ciclicoMarcarImpactoFinanceiro(agendaId,valor){
+  if(!agendaId||agendaId==='undefined')return;
+  try{
+    var r=await SB.from('ciclico_agenda').update({impacto_financeiro:valor}).eq('id',agendaId);
+    if(r.error){ alert('Erro: '+r.error.message); return; }
+    carregarRelatorioLancamentoUI();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoMarcarImpactoFinanceiro']=ciclicoMarcarImpactoFinanceiro;
 
 async function ciclicoExportarLancamento(){
   try{
     var linhas=await ciclicoBuscarLinhasLancamento();
     if(!linhas.length){ alert('Nenhum SKU pronto pra lançamento ainda hoje.'); return; }
-    var ws=XLSX.utils.json_to_sheet(linhas,{header:['SKU','Lote','Quantidade']});
-    ws['!cols']=[{wch:12},{wch:16},{wch:12}];
+    var linhasExp=linhas.map(function(l){
+      return {SKU:l.SKU,Lote:l.Lote,Quantidade:l.Quantidade,'Impacto financeiro':l.impactoFinanceiro===true?'Sim':(l.impactoFinanceiro===false?'Não':'Não marcado')};
+    });
+    var ws=XLSX.utils.json_to_sheet(linhasExp,{header:['SKU','Lote','Quantidade','Impacto financeiro']});
+    ws['!cols']=[{wch:12},{wch:16},{wch:12},{wch:16}];
     var wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Lançamento');
     XLSX.writeFile(wb,'Lancamento_Ciclico_'+new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')+'.xlsx');
