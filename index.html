@@ -1578,39 +1578,61 @@ window['ciclicoRemoverItemAgenda']=ciclicoRemoverItemAgenda;
 
 async function ciclicoGarantirSessaoHoje(){
   var hoje=new Date();
-  var nomeHoje='Cíclico '+hoje.toLocaleDateString('pt-BR');
+  var nomeBase='Cíclico '+hoje.toLocaleDateString('pt-BR');
   try{
-    var rBusca=await SB.from('sessoes_inventario').select('id').eq('tipo','ciclico').eq('nome',nomeHoje).limit(1);
+    var rBusca=await SB.from('sessoes_inventario').select('id,status,nome').eq('tipo','ciclico').ilike('nome',nomeBase+'%');
     if(rBusca.error){ console.error('ciclicoGarantirSessaoHoje busca:',rBusca.error); return null; }
-    if(rBusca.data&&rBusca.data.length){ A.ciclico._sessaoHojeId=rBusca.data[0].id; return rBusca.data[0].id; }
-    var rCria=await SB.from('sessoes_inventario').insert({nome:nomeHoje,status:'ativa',criado_por:A.sessao.id,tipo:'ciclico'}).select('id').single();
+    var todas=rBusca.data||[];
+    var ativa=todas.find(function(s){return s.status==='ativa';});
+    if(ativa){ A.ciclico._sessaoHojeId=ativa.id; return ativa.id; }
+    // Não tem sessão ativa hoje — cria uma nova. Se já tem alguma encerrada hoje, sufixa (nova lista).
+    var nomeNovo=todas.length?(nomeBase+' ('+(todas.length+1)+')'):nomeBase;
+    var rCria=await SB.from('sessoes_inventario').insert({nome:nomeNovo,status:'ativa',criado_por:A.sessao.id,tipo:'ciclico'}).select('id').single();
     if(rCria.error){ console.error('ciclicoGarantirSessaoHoje criar:',rCria.error); return null; }
     A.ciclico._sessaoHojeId=rCria.data.id;
     return rCria.data.id;
   }catch(e){ console.error('ciclicoGarantirSessaoHoje exceção:',e); return null; }
 }
 
+async function ciclicoEncerrarContagemHoje(){
+  if(!A.ciclico._sessaoHojeId){ alert('Nenhuma sessão de hoje encontrada ainda.'); return; }
+  if(!confirm('Encerrar a contagem de hoje?\n\nO que já foi concluído fica registrado. O que ainda não foi contado sai da lista de hoje (continua pendente e pode ser gerado de novo na Agenda). Se você abrir a Contagem de novo depois, começa uma lista nova.'))return;
+  try{
+    var r=await SB.from('sessoes_inventario').update({status:'encerrada'}).eq('id',A.ciclico._sessaoHojeId);
+    if(r.error){ alert('Erro: '+r.error.message); return; }
+    addLog('Encerrou sessão cíclica',String(A.ciclico._sessaoHojeId));
+    alert('✅ Contagem de hoje encerrada.');
+    A.ciclico._sessaoHojeId=null;
+    dCContagem();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoEncerrarContagemHoje']=ciclicoEncerrarContagemHoje;
+
 function hCContagem(){
+  var podeEncerrar=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
   return '<div class="stit">Cíclico · Contagem</div>'+
     '<div class="ssub">SKUs confirmados na Agenda de hoje. Clique num item pra bipar.</div>'+
-    '<button class="btn bs bsm" style="margin-bottom:14px" onclick="ciclicoExportarExcel()">📥 Baixar Excel (SKU × Endereço)</button>'+
+    '<div class="fr" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
+      '<button class="btn bs bsm" onclick="ciclicoExportarExcel()">📥 Baixar Excel (SKU × Endereço)</button>'+
+      (podeEncerrar?'<button class="btn bs bsm" style="color:var(--rd);border-color:var(--rd)" onclick="ciclicoEncerrarContagemHoje()">🔒 Encerrar contagem de hoje</button>':'')+
+    '</div>'+
     '<div id="contagem-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
 }
 
 async function ciclicoExportarExcel(){
   if(!A.ciclico._sessaoHojeId){ alert('Nenhuma sessão de hoje encontrada ainda.'); return; }
   try{
-    var r=await SB.from('contagens').select('sku,descricao,endereco,lote,fab,val,qtd,numero_contagem,operador_nome').eq('sessao_id',A.ciclico._sessaoHojeId).order('sku',{ascending:true});
+    var r=await SB.from('contagens').select('sku,descricao,endereco,deposito,lote,fab,val,qtd,numero_contagem,operador_nome').eq('sessao_id',A.ciclico._sessaoHojeId).order('sku',{ascending:true});
     if(r.error){ alert('Erro ao buscar dados: '+r.error.message); return; }
     var rows=r.data||[];
     if(!rows.length){ alert('Nenhuma contagem registrada ainda hoje.'); return; }
 
-    // Agrupa por SKU + Endereço + Lote + Fab + Val (soma quantidade)
+    // Agrupa por SKU + Endereço + Depósito + Lote + Fab + Val (soma quantidade)
     var agr={};
     rows.forEach(function(c){
-      var chave=[c.sku,c.endereco||'',c.lote||'',c.fab||'',c.val||''].join('|');
+      var chave=[c.sku,c.endereco||'',c.deposito||'',c.lote||'',c.fab||'',c.val||''].join('|');
       if(!agr[chave]){
-        agr[chave]={SKU:c.sku,Descrição:c.descricao||'',Endereço:c.endereco||'(sem endereço)',Lote:c.lote||'',Fabricação:c.fab||'',Validade:c.val||'',Quantidade:0,'Nº Contagem':c.numero_contagem||1,Operador:c.operador_nome||''};
+        agr[chave]={SKU:c.sku,Descrição:c.descricao||'',Endereço:c.endereco||'(sem endereço)',Depósito:c.deposito||'',Lote:c.lote||'',Fabricação:c.fab||'',Validade:c.val||'',Quantidade:0,'Nº Contagem':c.numero_contagem||1,Operador:c.operador_nome||''};
       }
       agr[chave].Quantidade+=parseFloat(c.qtd||0);
     });
@@ -1619,8 +1641,8 @@ async function ciclicoExportarExcel(){
       return (a.Endereço||'')<(b.Endereço||'')?-1:1;
     });
 
-    var ws=XLSX.utils.json_to_sheet(linhas,{header:['SKU','Descrição','Endereço','Lote','Fabricação','Validade','Quantidade','Nº Contagem','Operador']});
-    ws['!cols']=[{wch:10},{wch:32},{wch:16},{wch:14},{wch:12},{wch:12},{wch:11},{wch:11},{wch:20}];
+    var ws=XLSX.utils.json_to_sheet(linhas,{header:['SKU','Descrição','Endereço','Depósito','Lote','Fabricação','Validade','Quantidade','Nº Contagem','Operador']});
+    ws['!cols']=[{wch:10},{wch:32},{wch:14},{wch:10},{wch:14},{wch:12},{wch:12},{wch:11},{wch:11},{wch:20}];
     var wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Contagem Cíclico');
     var hoje=new Date();
@@ -1652,10 +1674,10 @@ async function dCContagem(){
 
     var endsPorSku={};
     A.dados.zwm.forEach(function(z){
-      if(!z.sku)return;
+      if(!z.sku||!z.pos)return;
       if(!endsPorSku[z.sku])endsPorSku[z.sku]=[];
-      var label=(z.pos||'')+(z.dep?' ('+z.dep+')':'');
-      if(z.pos && endsPorSku[z.sku].indexOf(label)===-1) endsPorSku[z.sku].push(label);
+      var jaExiste=endsPorSku[z.sku].some(function(e){return e.pos===z.pos&&e.dep===(z.dep||'');});
+      if(!jaExiste) endsPorSku[z.sku].push({pos:z.pos,dep:z.dep||''});
     });
 
     var rCont=await SB.from('contagens').select('sku,qtd,numero_contagem').eq('sessao_id',sessaoId);
@@ -1671,7 +1693,7 @@ async function dCContagem(){
     var PRIORIDADE_CLASSE={AA:1,AB:2,BA:2,AC:3,BB:3,CA:3,BC:4,CB:4,CC:5};
 
     A.ciclico._itensContagem=itens.map(function(a){
-      var enderecosBase=(a.enderecos_status&&a.enderecos_status.length)?a.enderecos_status:(endsPorSku[a.sku]||[]).map(function(e){return {nome:e,extra:false,contado:false,vazio:false,bipes:[]};});
+      var enderecosBase=(a.enderecos_status&&a.enderecos_status.length)?a.enderecos_status:(endsPorSku[a.sku]||[]).map(function(e){return {nome:e.pos,dep:e.dep,extra:false,contado:false,vazio:false,bipes:[]};});
       var classeComb=classePorSku[a.sku]||'';
       return {
         agendaId:a.id, sku:a.sku, status:a.status, origem:a.origem,
@@ -1792,7 +1814,7 @@ function renderListaEnderecosModal(){
     var corTexto=e.vazio?'#5B2D8E':'var(--cacau)';
     html+='<div onclick="ciclicoAbrirPosicao('+idx+')" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid '+corBorda+';border-radius:8px;background:'+corFundo+'">'+
       '<span style="font-size:16px">'+icone+'</span>'+
-      '<span style="flex:1;font-size:13px;font-weight:700;color:'+corTexto+'">'+SEC.t(e.nome)+(e.extra?' <span style="font-size:9px;color:var(--am);font-weight:400">(novo)</span>':'')+(e.vazio?' <span style="font-size:9px;font-weight:400">(vazia)</span>':'')+'</span>'+
+      '<span style="flex:1;font-size:13px;font-weight:700;color:'+corTexto+'">'+SEC.t(e.nome)+(e.dep?' <span style="font-size:10px;color:var(--g400);font-weight:400">· '+SEC.t(e.dep)+'</span>':'')+(e.extra?' <span style="font-size:9px;color:var(--am);font-weight:400">(novo)</span>':'')+(e.vazio?' <span style="font-size:9px;font-weight:400">(vazia)</span>':'')+'</span>'+
       (e.contado?'<span style="font-size:12px;color:var(--g500)">'+totalEnd+'</span>':'')+
       '<span style="color:var(--g300)">›</span>'+
     '</div>';
@@ -1963,7 +1985,7 @@ async function ciclicoFecharContagemSku(){
   if(pendentesEnd.length){
     if(!confirm('Ainda tem '+pendentesEnd.length+' endereço(s) não conferido(s) ('+pendentesEnd.map(function(e){return e.nome;}).join(', ')+'). Fechar mesmo assim?'))return;
   }
-  var todosBipes=[]; item.enderecos.forEach(function(e){ e.bipes.forEach(function(b){ todosBipes.push({b:b,endereco:e.nome}); }); });
+  var todosBipes=[]; item.enderecos.forEach(function(e){ e.bipes.forEach(function(b){ todosBipes.push({b:b,endereco:e.nome,deposito:e.dep||''}); }); });
   var totalBipado=todosBipes.reduce(function(a,x){return a+parseFloat(x.b.qtd||0);},0);
   var numeroContagem=(item.status==='aguardando_2a')?2:1;
 
@@ -1972,10 +1994,10 @@ async function ciclicoFecharContagemSku(){
   }
 
   try{
-    var payload=(todosBipes.length?todosBipes:[{b:{lote:'',fab:'',val:'',qtd:0},endereco:(item.enderecos[0]&&item.enderecos[0].nome)||''}]).map(function(x){
+    var payload=(todosBipes.length?todosBipes:[{b:{lote:'',fab:'',val:'',qtd:0},endereco:(item.enderecos[0]&&item.enderecos[0].nome)||'',deposito:(item.enderecos[0]&&item.enderecos[0].dep)||''}]).map(function(x){
       return {
         sessao_id:A.ciclico._sessaoHojeId, sku:item.sku, descricao:item.desc, um:'UN',
-        lote:x.b.lote||'', fab:x.b.fab||'', val:x.b.val||'', endereco:x.endereco||'', deposito:'',
+        lote:x.b.lote||'', fab:x.b.fab||'', val:x.b.val||'', endereco:x.endereco||'', deposito:x.deposito||'',
         qtd:x.b.qtd||0, operador_id:A.sessao.id, operador_nome:A.sessao.nome||'',
         numero_contagem:numeroContagem
       };
@@ -2035,7 +2057,13 @@ function hCDivergencias(){
     '</div>'+
     '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 8px">'+
-      '<div class="ctit" style="margin:0">📋 Histórico de decisões</div>'+
+      '<div class="ctit" style="margin:0">📋 Relatório de Lançamento</div>'+
+      '<button class="btn bs bsm" onclick="ciclicoExportarLancamento()">📥 Baixar Excel (SKU · Lote · Qtd)</button>'+
+    '</div>'+
+    '<div class="ssub" style="margin:-6px 0 8px">Só entra aqui o que bateu automaticamente ou já foi aprovado — pronto pra lançar no sistema.</div>'+
+    '<div id="divergencias-lancamento"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 8px">'+
+      '<div class="ctit" style="margin:0">📑 Histórico de decisões (auditoria)</div>'+
       '<button class="btn bs bsm" onclick="ciclicoExportarHistoricoDivergencias()">📥 Baixar Excel</button>'+
     '</div>'+
     '<div id="divergencias-historico"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
@@ -2054,6 +2082,7 @@ async function dCDivergencias(){
   var el=document.getElementById('divergencias-lista');
   var elH=document.getElementById('divergencias-historico');
   if(!el)return;
+  carregarRelatorioLancamentoUI();
 
   var hoje=new Date(); hoje.setHours(0,0,0,0);
   var hojeStr=hoje.toISOString().slice(0,10);
@@ -2200,6 +2229,56 @@ async function ciclicoExportarHistoricoDivergencias(){
   }catch(e){ alert('Erro ao gerar Excel: '+e.message); }
 }
 window['ciclicoExportarHistoricoDivergencias']=ciclicoExportarHistoricoDivergencias;
+
+// ── Relatório de Lançamento — só o que fechou (bateu automático ou foi aprovado) ──
+async function ciclicoBuscarLinhasLancamento(){
+  var hoje=new Date(); hoje.setHours(0,0,0,0);
+  var hojeStr=hoje.toISOString().slice(0,10);
+  var rAg=await SB.from('ciclico_agenda').select('sku').eq('data',hojeStr).eq('status','realizado');
+  if(rAg.error||!rAg.data||!rAg.data.length)return [];
+  var skus=rAg.data.map(function(a){return a.sku;});
+  if(!A.ciclico._sessaoHojeId)return [];
+  var rC=await SB.from('contagens').select('sku,lote,qtd,numero_contagem').eq('sessao_id',A.ciclico._sessaoHojeId).in('sku',skus);
+  if(rC.error||!rC.data)return [];
+  var maxRound={};
+  rC.data.forEach(function(c){ var n=c.numero_contagem||1; if(!maxRound[c.sku]||n>maxRound[c.sku])maxRound[c.sku]=n; });
+  var agr={};
+  rC.data.forEach(function(c){
+    var n=c.numero_contagem||1;
+    if(n!==maxRound[c.sku])return; // só considera a rodada final de cada SKU
+    var chave=c.sku+'|'+(c.lote||'');
+    if(!agr[chave])agr[chave]={SKU:c.sku,Lote:c.lote||'',Quantidade:0};
+    agr[chave].Quantidade+=parseFloat(c.qtd||0);
+  });
+  return Object.values(agr).sort(function(a,b){return a.SKU<b.SKU?-1:(a.SKU>b.SKU?1:0);});
+}
+
+async function carregarRelatorioLancamentoUI(){
+  var el=document.getElementById('divergencias-lancamento');
+  if(!el)return;
+  try{
+    var linhas=await ciclicoBuscarLinhasLancamento();
+    if(!linhas.length){ el.innerHTML='<div style="color:var(--g500);font-size:12px">Nenhum SKU pronto pra lançamento ainda hoje.</div>'; return; }
+    el.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Lote</th><th>Quantidade</th></tr></thead><tbody>'+
+      linhas.map(function(l){return '<tr><td style="font-weight:700">'+l.SKU+'</td><td>'+(l.Lote||'—')+'</td><td>'+l.Quantidade+'</td></tr>';}).join('')+
+      '</tbody></table></div>';
+  }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
+}
+
+async function ciclicoExportarLancamento(){
+  try{
+    var linhas=await ciclicoBuscarLinhasLancamento();
+    if(!linhas.length){ alert('Nenhum SKU pronto pra lançamento ainda hoje.'); return; }
+    var ws=XLSX.utils.json_to_sheet(linhas,{header:['SKU','Lote','Quantidade']});
+    ws['!cols']=[{wch:12},{wch:16},{wch:12}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Lançamento');
+    XLSX.writeFile(wb,'Lancamento_Ciclico_'+new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')+'.xlsx');
+    addLog('Exportou Relatório de Lançamento Cíclico',linhas.length+' linhas');
+  }catch(e){ alert('Erro ao gerar Excel: '+e.message); }
+}
+window['ciclicoExportarLancamento']=ciclicoExportarLancamento;
 
 window['upFCiclo']=upFCiclo;
 window['confirmarImportMov']=confirmarImportMov;
