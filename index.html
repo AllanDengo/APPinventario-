@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
 <title>Inventário Geral · Dengo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -21,20 +24,27 @@ try {
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 :root{
-  --creme:#F5F2EB;--creme2:#EDE8DE;
-  --cacau:#3D2314;--cacau2:#5C3520;--cacau3:#7A4A2E;
-  --ouro:#C8963C;--ouro2:#E8B55A;--ouro3:#F5D08A;
-  --verde2:#3E7022;
-  --branco:#FEFCF8;--g50:#F8F5EF;--g100:#EDE9E0;--g200:#DDD8CC;--g300:#C8C0B0;
+  /* ── Paleta Dengo — remapeada nos tokens semânticos existentes ── */
+  --creme:#FFFBF0;--creme2:#FFF4D6;
+  --cacau:#48311B;--cacau2:#6B4A2C;--cacau3:#8A6440;
+  --ouro:#FFA600;--ouro2:#FFD200;--ouro3:#FFE680;
+  --verde2:#286B37;
+  --rosa:#F1A6B5;--rosal:#FDEEF1;
+  --branco:#FFFFFF;--g50:#FAF7F0;--g100:#F1EBDD;--g200:#E2D9C4;--g300:#CBBEA0;
   --g400:#A89880;--g500:#887560;--g600:#685545;
-  --rd:#C0392B;--rdl:#FAEAEA;--am:#D4851A;--aml:#FEF6E8;--gr:#2D6A2D;--grl:#EBF5EB;
-  --sh:0 1px 4px rgba(61,35,20,.06);--sh2:0 8px 32px rgba(61,35,20,.12);
-  --fn:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  --r:10px;--rs:8px;--rl:16px;
+  --rd:#E95C24;--rdl:#FDEEE6;--am:#D9820A;--aml:#FDF1DD;--gr:#286B37;--grl:#EAF3EC;
+  --sh:0 1px 3px rgba(72,49,27,.08);--sh2:0 12px 32px rgba(72,49,27,.14);
+  --fn:'Work Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --fw-light:300;--fw-medium:500;--fw-bold:700;
+  --r:12px;--rs:10px;--rl:20px;
 }
-body{font-family:var(--fn);background:#F5F2EB;color:var(--cacau);font-size:14px;line-height:1.55;min-height:100vh;padding-bottom:54px}
+*{box-sizing:border-box}
+button,input,select,textarea{font-family:var(--fn)}
+:focus-visible{outline:2px solid var(--ouro);outline-offset:2px;border-radius:4px}
+
+body{font-family:var(--fn);background:var(--creme);color:var(--cacau);font-size:14px;line-height:1.6;min-height:100vh;padding-bottom:54px;font-weight:400}
 #sl{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--creme);position:relative;overflow:hidden}
-#sl::before{content:'';position:absolute;top:-120px;right:-120px;width:400px;height:400px;background:radial-gradient(circle,rgba(200,150,60,.12) 0%,transparent 70%);border-radius:50%;pointer-events:none}
+#sl::before{content:'';position:absolute;top:-120px;right:-120px;width:400px;height:400px;background:radial-gradient(circle,rgba(255,166,0,.12) 0%,transparent 70%);border-radius:50%;pointer-events:none}
 #sl::after{content:'';position:absolute;bottom:-80px;left:-80px;width:300px;height:300px;background:radial-gradient(circle,rgba(45,80,22,.08) 0%,transparent 70%);border-radius:50%;pointer-events:none}
 .lcard{background:var(--branco);border:1px solid var(--g200);border-radius:20px;padding:44px 40px;width:100%;max-width:380px;box-shadow:var(--sh2);position:relative;z-index:1}
 .llogo{display:flex;align-items:center;gap:13px;margin-bottom:30px}
@@ -51,7 +61,10 @@ body{font-family:var(--fn);background:#F5F2EB;color:var(--cacau);font-size:14px;
 .fg{margin-bottom:16px}
 .fl{font-size:12px;font-weight:600;color:var(--g600);margin-bottom:6px;display:block;letter-spacing:.02em;text-transform:uppercase}
 .fi{width:100%;border:1.5px solid var(--g200);border-radius:var(--rs);padding:11px 14px;font-size:14px;color:var(--cacau);background:var(--branco);transition:border-color .2s,box-shadow .2s;font-family:var(--fn)}
-.fi:focus{outline:none;border-color:var(--ouro);box-shadow:0 0 0 3px rgba(200,150,60,.12)}
+.fi:focus{outline:none;border-color:var(--ouro);box-shadow:0 0 0 3px rgba(255,166,0,.15)}
+.fi:disabled{background:var(--g50);color:var(--g400);border-color:var(--g100);cursor:not-allowed}
+.fi.erro{border-color:var(--rd);box-shadow:0 0 0 3px rgba(233,92,36,.1)}
+.fi.sucesso{border-color:var(--gr);box-shadow:0 0 0 3px rgba(40,107,55,.1)}
 .fi::placeholder{color:var(--g300)}
 select.fi{cursor:pointer}
 textarea.fi{resize:vertical}
@@ -75,10 +88,13 @@ textarea.fi{resize:vertical}
 .pkey:active{background:var(--creme2);transform:scale(.94)}
 .pkey.del{font-size:13px;color:var(--g500)}
 .pw-input{width:100%;border:1.5px solid var(--g200);border-radius:var(--rs);padding:11px 14px;font-size:16px;font-weight:700;text-align:center;letter-spacing:.25em;font-family:var(--fn);color:var(--cacau)}
-.pw-input:focus{outline:none;border-color:var(--ouro);box-shadow:0 0 0 3px rgba(200,150,60,.12)}
+.pw-input:focus{outline:none;border-color:var(--ouro);box-shadow:0 0 0 3px rgba(255,166,0,.12)}
 .btn{display:inline-flex;align-items:center;gap:6px;border-radius:var(--rs);font-size:13px;font-weight:600;cursor:pointer;border:none;padding:10px 18px;transition:all .15s;font-family:var(--fn);letter-spacing:.01em}
 .bp{background:var(--cacau);color:var(--ouro2)}.bp:hover{background:var(--cacau2)}.bp:disabled{background:var(--g200);color:var(--g400);cursor:not-allowed}
-.bs{background:var(--branco);color:var(--cacau);border:1.5px solid var(--g200)}.bs:hover{background:var(--g50);border-color:var(--g300)}
+.bs{background:var(--branco);color:var(--cacau);border:1.5px solid var(--g200)}.bs:hover{background:var(--g50);border-color:var(--g300)}.bs:disabled{color:var(--g400);border-color:var(--g100);cursor:not-allowed}
+.bg{background:transparent;color:var(--cacau);border:none;padding-left:8px;padding-right:8px}.bg:hover{background:var(--g50)}.bg:disabled{color:var(--g400);cursor:not-allowed}
+.bd{background:var(--rd);color:#fff}.bd:hover{background:#C94A18}.bd:disabled{background:var(--g200);color:var(--g400);cursor:not-allowed}
+.btn.loading{opacity:.65;cursor:wait;pointer-events:none}
 .bg{background:var(--grl);color:var(--gr);border:1px solid #b7dbb7}.br{background:var(--rdl);color:var(--rd);border:1px solid #f5c6c6}
 .bam{background:var(--aml);color:var(--am);border:1px solid #f5d8a0}.bsm{padding:7px 13px;font-size:12px}.bfl{width:100%;justify-content:center}
 #sa{display:none}
@@ -102,7 +118,7 @@ textarea.fi{resize:vertical}
 .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
 .ctit{font-size:11px;font-weight:700;color:var(--g400);text-transform:uppercase;letter-spacing:.08em}
 .stit{font-size:22px;font-weight:700;color:var(--cacau);margin-bottom:4px;letter-spacing:-.02em}
-.ssub{font-size:13px;color:var(--g500);margin-bottom:22px}
+.ssub{font-size:13px;font-weight:300;color:var(--g500);margin-bottom:22px}
 .kg{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
 .kc{background:var(--branco);border:1px solid var(--g200);border-radius:var(--r);padding:18px 16px;box-shadow:var(--sh)}
 .kv{font-size:26px;font-weight:700;color:var(--cacau)}
@@ -165,7 +181,7 @@ tbody tr:hover{background:var(--g50)}
 .dvstrip{border-top:1px solid #f5c6c6;background:#FAEAEA;padding:10px 16px;font-size:12px;color:var(--rd)}
 .skipstrip{border-top:1px solid var(--g200);background:var(--g50);padding:10px 16px;font-size:12px;color:var(--g500)}
 .bip-flash{animation:bipflash .4s ease}
-@keyframes bipflash{0%{background:rgba(200,150,60,.25)}100%{background:var(--branco)}}
+@keyframes bipflash{0%{background:rgba(255,166,0,.25)}100%{background:var(--branco)}}
 @keyframes bipePulseOk{0%{transform:scale(1.035);box-shadow:0 0 0 7px rgba(91,168,91,.35)}60%{transform:scale(1.01);box-shadow:0 0 0 3px rgba(91,168,91,.15)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(91,168,91,0)}}
 @keyframes bipePulseVenc{0%{transform:scale(1.035);box-shadow:0 0 0 7px rgba(240,180,41,.4)}60%{transform:scale(1.01);box-shadow:0 0 0 3px rgba(240,180,41,.18)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(240,180,41,0)}}
 @keyframes bipeCheckPop{0%{transform:scale(0)}60%{transform:scale(1.3)}100%{transform:scale(1)}}
@@ -422,7 +438,7 @@ tbody tr:hover{background:var(--g50)}
   color:var(--cacau) !important;
   border:1.5px solid var(--ouro) !important;
   font-weight:800 !important;
-  box-shadow:0 2px 8px rgba(200,150,60,.2),inset 0 -3px 0 var(--ouro);
+  box-shadow:0 2px 8px rgba(255,166,0,.2),inset 0 -3px 0 var(--ouro);
   transform:translateY(-1px);
 }
 .acomp-chip:hover{
@@ -438,7 +454,7 @@ tbody tr:hover{background:var(--g50)}
 
 /* ══════ TORRE DE CONTROLE PREMIUM ══════ */
 @keyframes tFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-#torre-root{--t-bg:#FBF8F2;--t-card:#FFFFFF;--t-txt:#3A2E22;--t-mut:#9A8270;--t-bord:#EDE6D8;--t-acc:#C8963C;--t-ok:#5BA85B;--t-err:#D14343;--t-warn:#F0B429;--t-info:#4A90E2;animation:tFadeUp .4s ease}
+#torre-root{--t-bg:#FBF8F2;--t-card:#FFFFFF;--t-txt:#3A2E22;--t-mut:#9A8270;--t-bord:#EDE6D8;--t-acc:#FFA600;--t-ok:#5BA85B;--t-err:#D14343;--t-warn:#F0B429;--t-info:#4A90E2;animation:tFadeUp .4s ease}
 #torre-root.torre-dark{--t-bg:#1C1814;--t-card:#262019;--t-txt:#F2E9DC;--t-mut:#A89880;--t-bord:#3A3128;--t-acc:#E0B45C}
 #torre-root{background:var(--t-bg);border-radius:16px;padding:18px;color:var(--t-txt)}
 .t-kpi{background:var(--t-card);border:1px solid var(--t-bord);border-radius:14px;padding:16px 18px;transition:transform .18s ease,box-shadow .18s ease;animation:tFadeUp .45s ease both;cursor:default;position:relative;overflow:hidden}
@@ -2048,9 +2064,10 @@ function hCDivergencias(){
       '<button onclick="ciclicoDivergSetAba(\'pendentes\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='pendentes'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">🕐 Em análise</button>'+
       '<button onclick="ciclicoDivergSetAba(\'confirmadas\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='confirmadas'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">📋 Lançamento</button>'+
     '</div>'+
-    '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'+
-    (aba==='confirmadas'?(
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 8px">'+
+    (aba==='pendentes'?
+      '<div id="divergencias-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'
+    :(
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 8px">'+
       '<div class="ctit" style="margin:0">📋 Lançamento <span style="color:var(--gr)">✅</span></div>'+
       '<button class="btn bs bsm" onclick="ciclicoExportarLancamento()">📥 Baixar Excel (SKU · Lote · Qtd)</button>'+
     '</div>'+
@@ -2061,7 +2078,7 @@ function hCDivergencias(){
       '<button class="btn bs bsm" onclick="ciclicoExportarHistoricoDivergencias()">📥 Baixar Excel</button>'+
     '</div>'+
     '<div id="divergencias-historico"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>'
-    ):'');
+    ));
 }
 
 function ciclicoDivergSetAba(aba){
@@ -2074,17 +2091,42 @@ async function dCDivergencias(){
   ciclicoCarregarMotivos();
   var podeDecidir=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
   var aba=A.ciclico._divergAbaView||'pendentes';
-  var statusAlvo=aba==='pendentes'?'pendente_aprovacao':'divergente';
+
+  if(aba==='confirmadas'){
+    // Lançamento: só o relatório final, sem cards de ação
+    carregarRelatorioLancamentoUI();
+    var elH=document.getElementById('divergencias-historico');
+    if(elH){
+      try{
+        var rHist=await SB.from('ciclico_divergencias').select('*').order('decidido_em',{ascending:false}).limit(50);
+        if(rHist.error){ elH.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rHist.error.message+'</div>'; }
+        else{
+          var lbl2={aprovado_sem_ajuste:'✅ Aprovado',terceira_contagem:'🔁 Liberou nova contagem',material_bloqueado:'🔒 Material bloqueado'};
+          var rows=(rHist.data||[]);
+          if(!rows.length){ elH.innerHTML='<div style="color:var(--g500);font-size:12px">Nenhuma decisão registrada ainda.</div>'; }
+          else{
+            elH.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+              '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Decisão</th><th>Diferença</th><th>Motivo</th><th>Quando</th></tr></thead><tbody>'+
+              rows.map(function(r){
+                return '<tr><td style="font-weight:700">'+r.sku+'</td><td>'+(lbl2[r.decisao]||r.decisao)+'</td><td>'+(r.diferenca_qtd||0)+' (R$ '+fv(r.diferenca_valor||0)+')</td><td>'+SEC.t(r.observacao||'')+'</td><td>'+new Date(r.decidido_em).toLocaleString('pt-BR')+'</td></tr>';
+              }).join('')+
+              '</tbody></table></div>';
+          }
+        }
+      }catch(e){ elH.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
+    }
+    return;
+  }
+
+  // Em análise: reúne os dois tipos (1ª aguardando aprovação + 2ª/3ª já divergente confirmada)
   var el=document.getElementById('divergencias-lista');
-  var elH=document.getElementById('divergencias-historico');
   if(!el)return;
-  carregarRelatorioLancamentoUI();
 
   var hoje=new Date(); hoje.setHours(0,0,0,0);
   var hojeStr=hoje.toISOString().slice(0,10);
 
   try{
-    var rAgenda=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr).eq('status',statusAlvo);
+    var rAgenda=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr).in('status',['pendente_aprovacao','divergente']);
     if(rAgenda.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rAgenda.error.message+'</div>'; return; }
     var itens=rAgenda.data||[];
 
@@ -2105,43 +2147,26 @@ async function dCDivergencias(){
       var c2=(contadoPorSku[a.sku]&&contadoPorSku[a.sku][2])||0;
       var saldo=saldoPorSku[a.sku]||0;
       var custo=custoPorSku[a.sku]||0;
-      var base=(aba==='pendentes')?c1:c2;
+      var ehPendente=a.status==='pendente_aprovacao';
+      var base=ehPendente?c1:c2;
       var diferencaQtd=base-saldo;
       return {
-        agendaId:a.id, sku:a.sku, desc:descPorSku[a.sku]||'',
+        agendaId:a.id, sku:a.sku, desc:descPorSku[a.sku]||'', statusOrigem:a.status, ehPendente:ehPendente,
         c1:c1,c2:c2,saldo:saldo,custo:custo,
         diferencaQtd:diferencaQtd, diferencaValor:diferencaQtd*custo
       };
     });
-    renderDivergenciasLista(podeDecidir,aba);
-
-    if(elH){
-      var rHist=await SB.from('ciclico_divergencias').select('*').order('decidido_em',{ascending:false}).limit(50);
-      if(rHist.error){ elH.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rHist.error.message+'</div>'; }
-      else{
-        var lbl={aprovado_sem_ajuste:'✅ Aprovado sem ajuste',terceira_contagem:'🔁 Liberou nova contagem',material_bloqueado:'🔒 Material bloqueado'};
-        var rows=(rHist.data||[]);
-        if(!rows.length){ elH.innerHTML='<div style="color:var(--g500);font-size:12px">Nenhuma decisão registrada ainda.</div>'; }
-        else{
-          elH.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
-            '<thead><tr style="text-align:left;border-bottom:1px solid var(--g200)"><th>SKU</th><th>Decisão</th><th>Diferença</th><th>Motivo</th><th>Quando</th></tr></thead><tbody>'+
-            rows.map(function(r){
-              return '<tr><td style="font-weight:700">'+r.sku+'</td><td>'+(lbl[r.decisao]||r.decisao)+'</td><td>'+(r.diferenca_qtd||0)+' (R$ '+fv(r.diferenca_valor||0)+')</td><td>'+SEC.t(r.observacao||'')+'</td><td>'+new Date(r.decidido_em).toLocaleString('pt-BR')+'</td></tr>';
-            }).join('')+
-            '</tbody></table></div>';
-        }
-      }
-    }
+    renderDivergenciasLista(podeDecidir);
   }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
 }
 
-function renderDivergenciasLista(podeDecidir,aba){
+function renderDivergenciasLista(podeDecidir){
   var el=document.getElementById('divergencias-lista');
   if(!el)return;
   var itens=A.ciclico._divergenciasHoje||[];
-  var ehPendente=aba==='pendentes';
-  if(!itens.length){ el.innerHTML='<div class="card" style="text-align:center;color:var(--g500)">'+(ehPendente?'Nenhuma 1ª contagem aguardando aprovação. 🎉':'Nenhuma divergência confirmada pendente. 🎉')+'</div>'; return; }
+  if(!itens.length){ el.innerHTML='<div class="card" style="text-align:center;color:var(--g500)">Nada em análise no momento. 🎉</div>'; return; }
   el.innerHTML=itens.map(function(i){
+    var ehPendente=i.ehPendente;
     var alertaLimite=Math.abs(i.diferencaValor)>=(A.ciclico.parametros.limite_recontagem_auto||10000);
     var linhasNumeros=ehPendente?
       ('<div><div style="color:var(--g400);font-size:10px;text-transform:uppercase">1ª contagem</div><div style="font-weight:700">'+i.c1+'</div></div>'+
@@ -2151,7 +2176,7 @@ function renderDivergenciasLista(podeDecidir,aba){
         '<div><div style="color:var(--g400);font-size:10px;text-transform:uppercase">Saldo sistema</div><div style="font-weight:700">'+i.saldo+'</div></div>');
     return '<div class="card" style="border-color:'+(ehPendente?'var(--am)':'var(--rd)')+'">'+
       '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">'+
-        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+'</div><div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div></div>'+
+        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+' <span style="font-size:9px;background:'+(ehPendente?'var(--g100)':'#FBEAEA')+';color:'+(ehPendente?'var(--g500)':'var(--rd)')+';padding:1px 6px;border-radius:4px;margin-left:4px">'+(ehPendente?'1ª DIVERGIU':'DIVERGÊNCIA CONFIRMADA')+'</span></div><div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div></div>'+
         (alertaLimite?'<span style="font-size:10px;background:#FBEAEA;color:var(--rd);padding:3px 8px;border-radius:6px;font-weight:700;align-self:center">⚠️ acima do limite pra recontagem automática</span>':'')+
       '</div>'+
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;font-size:12px;margin-bottom:12px">'+
@@ -2198,7 +2223,7 @@ var __divergenciaAtual=null;
 function ciclicoDecidirDivergencia(sku,decisao){
   var item=(A.ciclico._divergenciasHoje||[]).find(function(i){return i.sku===sku;});
   if(!item)return;
-  var ehPendente=(A.ciclico._divergAbaView||'pendentes')==='pendentes';
+  var ehPendente=!!item.ehPendente;
   var lbl={aprovado_sem_ajuste:'Aprovar',terceira_contagem:(ehPendente?'Aprovar 2ª contagem':'Liberar nova contagem'),material_bloqueado:'Marcar material bloqueado'}[decisao];
   __divergenciaAtual={sku:sku,decisao:decisao,item:item,lbl:lbl};
 
@@ -2842,7 +2867,7 @@ function dABC(){
   </div>
   <div class="card">
     <div class="ctit" style="margin-bottom:12px">Distribuição Pareto</div>
-    ${[{l:'Classe A',v:va,c:'#3E7022'},{l:'Classe B',v:vb,c:'#C8963C'},{l:'Classe C',v:vc,c:'#C0392B'}].map(g=>`
+    ${[{l:'Classe A',v:va,c:'#3E7022'},{l:'Classe B',v:vb,c:'#FFA600'},{l:'Classe C',v:vc,c:'#C0392B'}].map(g=>`
     <div class="prrow"><span class="prl">${g.l}</span><div class="prb"><div class="prf" style="width:${(g.v/mx*100).toFixed(1)}%;background:${g.c}"></div></div>
     <span class="prp">${pc(g.v,tv)}%</span><span class="prv">R$ ${fv(g.v)}</span></div>`).join('')}
   </div>
@@ -3344,7 +3369,7 @@ function dAcomp(){
     const st=item.status,cls=st==='ok'?'ok':st==='divergencia'?'dvg':st==='pulado'?'skip':'pend';
     const ic=st==='ok'?'✅':st==='divergencia'?'⚠️':st==='pulado'?'⏭️':'⏳';
     const bar=st==='ok'||st==='divergencia'||st==='pulado'?100:0;
-    const barC=st==='ok'?'#3E7022':st==='divergencia'?'#C0392B':st==='pulado'?'#888':'#C8963C';
+    const barC=st==='ok'?'#3E7022':st==='divergencia'?'#C0392B':st==='pulado'?'#888':'#FFA600';
     const addr=item.pos2||item.addrManual||'';
     const meta=[addr?'📍 '+addr:null,item.depI||null,item.loteI?'🏷️ '+item.loteI:null].filter(Boolean).join(' · ')||'Sem endereço';
     const stLabel=st==='ok'?`<span style="color:var(--gr);font-size:11px;font-weight:600">Contado: ${item.qtdC} ${item.um||''}</span>`:st==='divergencia'?`<span style="color:var(--rd);font-size:11px;font-weight:600">Divergência · ${item.just||'—'}</span>`:st==='pulado'?`<span style="color:var(--g500);font-size:11px">⏭️ ${item.skipJust||'—'}</span>`:`<span style="color:var(--ouro);font-size:11px">Aguardando contagem</span>`;
@@ -3586,7 +3611,7 @@ function dAbcRules(){
   const f=document.getElementById('abc-rules-form');if(!f)return;
   f.innerHTML=`<div class="alert ai" style="margin-bottom:12px">Alterar os limites recalcula a classificação de todos os SKUs.</div>
   <div class="abc-rule"><div class="abc-swatch" style="background:#3E7022"></div><span style="font-size:13px;font-weight:600">Classe A até</span><input class="range-input" id="lim-a" type="number" min="1" max="99" value="${A.abcRules.limA}"><span class="tsm">% do valor acumulado</span></div>
-  <div class="abc-rule"><div class="abc-swatch" style="background:#C8963C"></div><span style="font-size:13px;font-weight:600">Classe B até</span><input class="range-input" id="lim-b" type="number" min="1" max="100" value="${A.abcRules.limB}"><span class="tsm">% do valor acumulado</span></div>
+  <div class="abc-rule"><div class="abc-swatch" style="background:#FFA600"></div><span style="font-size:13px;font-weight:600">Classe B até</span><input class="range-input" id="lim-b" type="number" min="1" max="100" value="${A.abcRules.limB}"><span class="tsm">% do valor acumulado</span></div>
   <div class="abc-rule"><div class="abc-swatch" style="background:#C03090"></div><span style="font-size:13px;font-weight:600">Classe C até</span><input class="range-input" id="lim-c" type="number" min="1" max="100" value="${A.abcRules.limC||99}"><span class="tsm">% do valor acumulado</span></div>
   <div class="abc-rule"><div class="abc-swatch" style="background:#6A1A5A"></div><span style="font-size:13px;font-weight:600">Classe D — acima de ${A.abcRules.limC||99}% (restante)</span><span>—</span><span></span></div>`;
   const pf=document.getElementById('pesos-form');if(!pf)return;
@@ -3612,7 +3637,7 @@ async function confReset(){const pinRaw=SEC.p(document.getElementById('reset-pw'
 function fv(v){if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(1)+'K';return v.toLocaleString('pt-BR',{maximumFractionDigits:0});}
 function pc(v,t){return t>0?(v/t*100).toFixed(1):0;}
 function lp(p){return{admin:'Administrador',gestor:'Gestor',operador:'Operador de inventário',analista:'Analista',auditor:'Auditor',outro:'Outro'}[p]||p;}
-function cp(p){return{admin:'#7C3AED',gestor:'#1A4A8A',operador:'#2D6A2D',analista:'#006080',auditor:'#C8963C',outro:'#685545'}[p]||'#685545';}
+function cp(p){return{admin:'#7C3AED',gestor:'#1A4A8A',operador:'#2D6A2D',analista:'#006080',auditor:'#FFA600',outro:'#685545'}[p]||'#685545';}
 function rc(p){return{admin:'radm',gestor:'rges',operador:'rop',analista:'ran',auditor:'raud',outro:'rout'}[p]||'rout';}
 
 
@@ -3661,7 +3686,7 @@ function renderIgItem2(item, idx, isAdmin){
   return`<div id="ig-card-${idx}" style="border:2px solid ${bdrClr};border-radius:12px;margin-bottom:10px;overflow:hidden;background:${bgClr};box-shadow:0 2px 6px rgba(61,35,20,.06)">
     ${item.pos2?`<div style="background:#3D2314;color:#F5D08A;padding:10px 18px;display:flex;align-items:center;gap:12px">
       <span style="font-size:20px;font-weight:900;font-family:monospace;letter-spacing:.1em;color:#F5D08A">${item.pos2}</span>
-      ${item.loteI?`<span style="font-size:12px;color:#C8963C;background:rgba(200,150,60,.15);padding:2px 8px;border-radius:20px">🏷️ ${item.loteI}</span>`:''}
+      ${item.loteI?`<span style="font-size:12px;color:#FFA600;background:rgba(255,166,0,.15);padding:2px 8px;border-radius:20px">🏷️ ${item.loteI}</span>`:''}
       ${item.depI?`<span style="font-size:11px;color:#A89880;margin-left:auto">${item.depI}</span>`:''}
     </div>`:''}
     <div style="padding:14px 18px">
@@ -3679,7 +3704,7 @@ function renderIgItem2(item, idx, isAdmin){
       </div>`:''}
       ${showInput?`<div style="display:flex;gap:10px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid ${bdrClr}">
         <input type="number" id="ig-qi-${idx}" placeholder="0" min="0" step="0.001"
-          style="flex:1;border:2px solid #C8963C;border-radius:10px;padding:12px 16px;font-size:22px;font-weight:800;text-align:center;color:#3D2314;background:#FFFDF5;font-family:var(--fn)"
+          style="flex:1;border:2px solid #FFA600;border-radius:10px;padding:12px 16px;font-size:22px;font-weight:800;text-align:center;color:#3D2314;background:#FFFDF5;font-family:var(--fn)"
           onkeydown="if(event.key==='Enter')confIG2(${idx})">
         <span style="font-size:13px;color:#887560;flex-shrink:0">${item.um||'UN'}</span>
         <button style="background:#2D6A2D;color:#fff;border:none;border-radius:10px;padding:12px 20px;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0;min-width:80px"
@@ -4440,7 +4465,7 @@ function dCtRank(){
         const ritmo=op.total>0?(op.total/mins).toFixed(2)+'/min':'—';
         const acuN=parseFloat(acu);
         return`<tr style="border-bottom:1px solid var(--g100)">
-          <td style="padding:10px;font-weight:800;color:${i===0?'#C8963C':i===1?'var(--g400)':i===2?'#A0775A':'var(--g400)'}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+          <td style="padding:10px;font-weight:800;color:${i===0?'#FFA600':i===1?'var(--g400)':i===2?'#A0775A':'var(--g400)'}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
           <td style="padding:10px;font-weight:700">${SEC.t(op.nome)}</td>
           <td style="padding:10px;text-align:center">${op.total}</td>
           <td style="padding:10px;text-align:center;color:var(--gr)">${op.ok}</td>
@@ -5200,7 +5225,7 @@ function dCtTV(){
   }).sort(function(a,b){return b.contagens-a.contagens;});
 
   // Cores Dengo: cacau, ouro, fundo creme
-  var OURO='#C8963C';
+  var OURO='#FFA600';
   var CACAU='#3D2314';
   var CREME='#FAF6EE';
   var BRANCO='#FFFFFF';
@@ -5745,7 +5770,7 @@ function hConfronto(){
   var tabBtn=function(id,label){
     var ativo=sub===id;
     var estilo=ativo?
-      'background:#FFF8E7;color:var(--cacau);border:1.5px solid var(--ouro);box-shadow:0 2px 8px rgba(200,150,60,.2),inset 0 -3px 0 var(--ouro);font-weight:800':
+      'background:#FFF8E7;color:var(--cacau);border:1.5px solid var(--ouro);box-shadow:0 2px 8px rgba(255,166,0,.2),inset 0 -3px 0 var(--ouro);font-weight:800':
       'background:var(--branco);color:var(--g500);border:1.5px solid var(--g200);font-weight:600';
     return '<button onclick="setConfrontoSub(\''+id+'\')" style="padding:8px 16px;border-radius:20px;font-size:12px;cursor:pointer;transition:all .15s;'+estilo+'">'+label+'</button>';
   };
@@ -6562,7 +6587,7 @@ function dTorre(){
   }
 
   // ---------- SVG helpers ----------
-  var C={ok:'#5BA85B',err:'#D14343',warn:'#F0B429',info:'#4A90E2',acc:'#C8963C',mut:'#B8AA95'};
+  var C={ok:'#5BA85B',err:'#D14343',warn:'#F0B429',info:'#4A90E2',acc:'#FFA600',mut:'#B8AA95'};
   function svgLinhaAcur(){
     var W=560,H=210,P=34;
     if(hist.length<2)return '<div style="font-size:11px;color:var(--t-mut);text-align:center;padding:40px 0">Precisa de 2+ encerramentos para a evolução</div>';
