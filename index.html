@@ -1701,9 +1701,13 @@ async function dCContagem(){
   var hojeStr=hoje.toISOString().slice(0,10);
 
   try{
-    var rAgenda=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr).in('status',['confirmado','aguardando_2a','realizado']);
-    if(rAgenda.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rAgenda.error.message+'</div>'; return; }
-    var itens=rAgenda.data||[];
+    // Pendentes/aguardando 2ª: qualquer data (carrega o que ficou aberto de dias anteriores).
+    // Realizado: só de hoje (senão a lista de "concluídos" vira histórico infinito).
+    var rAberto=await SB.from('ciclico_agenda').select('*').lte('data',hojeStr).in('status',['confirmado','aguardando_2a']);
+    var rFeito=await SB.from('ciclico_agenda').select('*').eq('data',hojeStr).eq('status','realizado');
+    if(rAberto.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rAberto.error.message+'</div>'; return; }
+    if(rFeito.error){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+rFeito.error.message+'</div>'; return; }
+    var itens=(rAberto.data||[]).concat(rFeito.data||[]);
     if(!itens.length){ el.innerHTML='<div class="card" style="text-align:center;color:var(--g500)">Nenhum SKU confirmado pra contar hoje. Vá na aba Agenda do dia.</div>'; return; }
 
     var saldoPorSku={};
@@ -1734,7 +1738,7 @@ async function dCContagem(){
       var enderecosBase=(a.enderecos_status&&a.enderecos_status.length)?a.enderecos_status:(endsPorSku[a.sku]||[]).map(function(e){return {nome:e.pos,dep:e.dep,extra:false,contado:false,vazio:false,bipes:[]};});
       var classeComb=classePorSku[a.sku]||'';
       return {
-        agendaId:a.id, sku:a.sku, status:a.status, origem:a.origem,
+        agendaId:a.id, sku:a.sku, status:a.status, origem:a.origem, data:a.data,
         desc:descPorSku[a.sku]||'',
         enderecos:enderecosBase,
         classeCombinada:classeComb,
@@ -1744,7 +1748,11 @@ async function dCContagem(){
         c2:(contadoPorSku[a.sku]&&contadoPorSku[a.sku][2]!=null)?contadoPorSku[a.sku][2]:null
       };
     });
-    A.ciclico._itensContagem.sort(function(a,b){return a.prioridade-b.prioridade;});
+    A.ciclico._itensContagem.sort(function(a,b){
+      var atrasoA=a.data<hojeStr?0:1, atrasoB=b.data<hojeStr?0:1;
+      if(atrasoA!==atrasoB)return atrasoA-atrasoB; // atrasados primeiro
+      return a.prioridade-b.prioridade;
+    });
     renderContagemLista();
   }catch(e){ el.innerHTML='<div class="alert" style="color:var(--rd)">Erro: '+e.message+'</div>'; }
 }
@@ -1752,6 +1760,7 @@ async function dCContagem(){
 function renderContagemLista(){
   var el=document.getElementById('contagem-lista');
   if(!el)return;
+  var hojeStr=new Date().toISOString().slice(0,10);
   var itens=A.ciclico._itensContagem||[];
   var pendentes=itens.filter(function(i){return i.status==='confirmado';});
   var aguard2=itens.filter(function(i){return i.status==='aguardando_2a';});
@@ -1762,11 +1771,12 @@ function renderContagemLista(){
     var totalEnd=i.enderecos.length;
     var contadosEnd=i.enderecos.filter(function(e){return e.contado||e.vazio;}).length;
     var pct=totalEnd?Math.round(contadosEnd/totalEnd*100):0;
+    var atrasado=i.data&&i.data<hojeStr;
     var onclickAttr=clicavel?' onclick="ciclicoAbrirBip(\''+i.sku+'\')" style="cursor:pointer;'
                             :' style="cursor:default;opacity:.75;';
-    return '<div'+onclickAttr+'padding:12px;border:1.5px solid '+corBorda+';border-radius:10px;margin-bottom:8px;background:var(--branco)">'+
+    return '<div'+onclickAttr+'padding:12px;border:1.5px solid '+(atrasado?'var(--rd)':corBorda)+';border-radius:10px;margin-bottom:8px;background:var(--branco)">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'+
-        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+' '+(i.origem==='manual'?'<span style="font-size:9px;background:var(--ouro);color:var(--cacau);padding:1px 6px;border-radius:4px;margin-left:4px">MANUAL</span>':(i.classeCombinada?'<span style="font-size:9px;background:var(--g100);color:var(--g500);padding:1px 6px;border-radius:4px;margin-left:4px">'+i.classeCombinada+'</span>':''))+'</div>'+
+        '<div><div style="font-weight:800;color:var(--cacau)">'+i.sku+' '+(i.origem==='manual'?'<span style="font-size:9px;background:var(--ouro);color:var(--cacau);padding:1px 6px;border-radius:4px;margin-left:4px">MANUAL</span>':(i.classeCombinada?'<span style="font-size:9px;background:var(--g100);color:var(--g500);padding:1px 6px;border-radius:4px;margin-left:4px">'+i.classeCombinada+'</span>':''))+(atrasado?'<span style="font-size:9px;background:#FBEAEA;color:var(--rd);padding:1px 6px;border-radius:4px;margin-left:4px;font-weight:700">⏰ ATRASADO DESDE '+i.data.split('-').reverse().join('/')+'</span>':'')+'</div>'+
         '<div style="font-size:12px;color:var(--g500)">'+SEC.t(i.desc)+'</div>'+
         (totalEnd?'<div style="font-size:11px;color:var(--g400);margin-top:2px">📍 '+contadosEnd+'/'+totalEnd+' endereços contados ('+pct+'%)</div>':'<div style="font-size:11px;color:var(--am)">⚠️ sem endereço cadastrado</div>')+
         '</div>'+
