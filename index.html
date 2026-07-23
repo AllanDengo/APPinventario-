@@ -2056,9 +2056,9 @@ async function ciclicoFecharContagemSku(){
         });
       }
     } else {
-      var bateSaldo=Math.abs(totalBipado-item.saldoEsperado)<=0.001;
-      var bateC1=item.c1!=null&&Math.abs(totalBipado-item.c1)<=0.001;
-      novoStatus=(bateSaldo||bateC1)?'realizado':'divergente';
+      // Toda recontagem (2ª em diante) sempre volta pra análise humana antes do
+      // Lançamento — mesmo que bata com o saldo ou com a 1ª, ninguém pula a aprovação.
+      novoStatus='divergente';
     }
 
     var rUp=await SB.from('ciclico_agenda').update({status:novoStatus,enderecos_status:enderecosParaSalvar}).eq('id',item.agendaId);
