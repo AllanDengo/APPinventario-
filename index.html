@@ -1620,12 +1620,40 @@ window['ciclicoEncerrarContagemHoje']=ciclicoEncerrarContagemHoje;
 function hCContagem(){
   var podeEncerrar=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
   return '<div class="stit">Cíclico · Contagem</div>'+
-    '<div class="ssub">SKUs confirmados na Agenda de hoje. Clique num item pra bipar.</div>'+
+    '<div class="ssub">SKUs confirmados na Agenda de hoje — lista de todo mundo, ao vivo. Clique num item pra bipar.</div>'+
+    '<div style="background:var(--g50);border:1px solid var(--g200);border-radius:var(--r);padding:8px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;font-size:12px">'+
+      '<span style="color:var(--g500)">⏱️ Próxima atualização: <span id="cc-countdown">30s</span></span>'+
+      '<button class="btn bs bsm" onclick="dCContagem()">↻ Atualizar agora</button>'+
+    '</div>'+
     '<div class="fr" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
       '<button class="btn bs bsm" onclick="ciclicoExportarExcel()">📥 Baixar Excel (SKU × Endereço)</button>'+
       (podeEncerrar?'<button class="btn bs bsm" style="color:var(--rd);border-color:var(--rd)" onclick="ciclicoEncerrarContagemHoje()">🔒 Encerrar contagem de hoje</button>':'')+
     '</div>'+
     '<div id="contagem-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
+}
+
+var _ccInterval=null,_ccCountdown=30;
+function ciclicoStartContagemTimer(){
+  clearInterval(_ccInterval);
+  _ccCountdown=30;
+  _ccInterval=setInterval(function(){
+    _ccCountdown--;
+    var el=document.getElementById('cc-countdown'); if(el)el.textContent=_ccCountdown+'s';
+    if(!el){ clearInterval(_ccInterval); return; } // saiu da tela, para o timer
+    if(_ccCountdown<=0){ dCContagem(); _ccCountdown=30; }
+  },1000);
+}
+
+var _cdInterval=null,_cdCountdown=30;
+function ciclicoStartDivergenciasTimer(){
+  clearInterval(_cdInterval);
+  _cdCountdown=30;
+  _cdInterval=setInterval(function(){
+    _cdCountdown--;
+    var el=document.getElementById('cd-countdown'); if(el)el.textContent=_cdCountdown+'s';
+    if(!el){ clearInterval(_cdInterval); return; }
+    if(_cdCountdown<=0){ dCDivergencias(); _cdCountdown=30; }
+  },1000);
 }
 
 async function ciclicoExportarExcel(){
@@ -1665,6 +1693,7 @@ window['ciclicoExportarExcel']=ciclicoExportarExcel;
 async function dCContagem(){
   var el=document.getElementById('contagem-lista');
   if(!el)return;
+  ciclicoStartContagemTimer();
   var sessaoId=await ciclicoGarantirSessaoHoje();
   if(!sessaoId){ el.innerHTML='<div class="alert" style="color:var(--rd)">Não foi possível abrir a sessão de hoje.</div>'; return; }
 
@@ -2059,7 +2088,11 @@ window['ciclicoFecharContagemSku']=ciclicoFecharContagemSku;
 function hCDivergencias(){
   var aba=A.ciclico._divergAbaView||'pendentes';
   return '<div class="stit">Cíclico · Divergências</div>'+
-    '<div class="ssub">Controle de quem pode liberar uma recontagem — nada volta pro operador sem passar por aqui.</div>'+
+    '<div class="ssub">Controle de quem pode liberar uma recontagem — nada volta pro operador sem passar por aqui. Lista de todo mundo, ao vivo.</div>'+
+    '<div style="background:var(--g50);border:1px solid var(--g200);border-radius:var(--r);padding:8px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;font-size:12px">'+
+      '<span style="color:var(--g500)">⏱️ Próxima atualização: <span id="cd-countdown">30s</span></span>'+
+      '<button class="btn bs bsm" onclick="dCDivergencias()">↻ Atualizar agora</button>'+
+    '</div>'+
     '<div style="display:flex;gap:6px;margin-bottom:16px">'+
       '<button onclick="ciclicoDivergSetAba(\'pendentes\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='pendentes'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">🕐 Em análise</button>'+
       '<button onclick="ciclicoDivergSetAba(\'confirmadas\')" style="flex:1;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;border:2px solid '+(aba==='confirmadas'?'var(--cacau);background:var(--cacau);color:var(--ouro)':'var(--g200);background:#fff;color:var(--g500)')+'">📋 Lançamento</button>'+
@@ -2088,6 +2121,7 @@ function ciclicoDivergSetAba(aba){
 }
 
 async function dCDivergencias(){
+  ciclicoStartDivergenciasTimer();
   ciclicoCarregarMotivos();
   var podeDecidir=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
   var aba=A.ciclico._divergAbaView||'pendentes';
