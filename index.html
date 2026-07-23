@@ -1617,6 +1617,22 @@ async function ciclicoEncerrarContagemHoje(){
 }
 window['ciclicoEncerrarContagemHoje']=ciclicoEncerrarContagemHoje;
 
+async function ciclicoCancelarAtrasados(){
+  var hojeStr=new Date().toISOString().slice(0,10);
+  var atrasados=(A.ciclico._itensContagem||[]).filter(function(i){return i.data&&i.data<hojeStr&&(i.status==='confirmado'||i.status==='aguardando_2a');});
+  if(!atrasados.length){ alert('Nenhum item atrasado pra cancelar.'); return; }
+  if(!confirm('Cancelar '+atrasados.length+' item(ns) atrasado(s)?\n\nEles somem da lista ativa (ficam registrados como "cancelado" pra auditoria) e podem ser gerados de novo na Agenda do dia.'))return;
+  try{
+    var ids=atrasados.map(function(i){return i.agendaId;});
+    var r=await SB.from('ciclico_agenda').update({status:'cancelado'}).in('id',ids);
+    if(r.error){ alert('Erro: '+r.error.message); return; }
+    addLog('Cancelou itens atrasados da Contagem cíclica',ids.length+' itens');
+    alert('✅ '+ids.length+' item(ns) cancelado(s).');
+    dCContagem();
+  }catch(e){ alert('Erro: '+e.message); }
+}
+window['ciclicoCancelarAtrasados']=ciclicoCancelarAtrasados;
+
 function hCContagem(){
   var podeEncerrar=A.sessao&&['admin','gestor','analista'].includes(A.sessao.perfil);
   return '<div class="stit">Cíclico · Contagem</div>'+
@@ -1628,6 +1644,7 @@ function hCContagem(){
     '<div class="fr" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
       '<button class="btn bs bsm" onclick="ciclicoExportarExcel()">📥 Baixar Excel (SKU × Endereço)</button>'+
       (podeEncerrar?'<button class="btn bs bsm" style="color:var(--rd);border-color:var(--rd)" onclick="ciclicoEncerrarContagemHoje()">🔒 Encerrar contagem de hoje</button>':'')+
+      (podeEncerrar?'<button class="btn bs bsm" style="color:var(--am);border-color:var(--am)" onclick="ciclicoCancelarAtrasados()">🗑️ Cancelar atrasados</button>':'')+
     '</div>'+
     '<div id="contagem-lista"><div style="text-align:center;padding:20px;color:var(--g400)">⏳ Carregando...</div></div>';
 }
